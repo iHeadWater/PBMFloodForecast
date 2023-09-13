@@ -885,10 +885,10 @@ def xaj(
                 qi = linear_reservoir(ris_[i], ci, qi)
                 qg = linear_reservoir(rgs_[i], cg, qg)
             qs[i, :] = qs_[i, :, 0] + qi + qg
-        else:
-            raise NotImplementedError(
-                "We don't provide this route method now! Please use 'CSL' or 'MZ'!"
-            )
+    else:
+        raise NotImplementedError(
+            "We don't provide this route method now! Please use 'CSL' or 'MZ'!"
+        )
 
     # seq, batch, feature
     q_sim = np.expand_dims(qs, axis=2)

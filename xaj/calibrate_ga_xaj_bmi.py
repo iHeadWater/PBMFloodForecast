@@ -1,15 +1,15 @@
 """Calibrate XAJ model using DEAP"""
 import os
 import pickle
-from deap import base, creator
 import random
-from deap import tools
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
 import sys
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+from deap import base, creator
+from deap import tools
+from tqdm import tqdm
 
 sys.path.append(os.path.dirname(Path(os.path.abspath(__file__)).parent.parent))
 import definitions
@@ -17,11 +17,8 @@ from hydromodel.models.model_config import MODEL_PARAM_DICT
 from hydromodel.utils import hydro_constant, hydro_utils
 from hydromodel.utils import stat
 from hydromodel.utils.stat import statRmse
-from hydromodel.models.gr4j import gr4j
-from hydromodel.models.hymod import hymod
-from hydromodel.models.xaj import xaj
 from hydromodel.visual.hydro_plot import plot_sim_and_obs, plot_train_iteration
-from xaj_bmi import xajBmi
+from xaj.xaj_bmi import xajBmi
 
 
 def evaluate(individual, x_input, y_true, warmup_length, model):

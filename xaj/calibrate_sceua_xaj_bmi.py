@@ -4,10 +4,7 @@ import spotpy
 from spotpy.parameter import Uniform, ParameterSet
 from spotpy.objectivefunctions import rmse
 from hydromodel.models.model_config import MODEL_PARAM_DICT
-from hydromodel.models.gr4j import gr4j
-from hydromodel.models.hymod import hymod
-from hydromodel.models.xaj import xaj
-from xaj_bmi import xajBmi
+from xaj.xaj_bmi import xajBmi
 
 
 class SpotSetup(object):

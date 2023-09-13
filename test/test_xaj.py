@@ -38,7 +38,7 @@ def the_data():
     root_dir = definitions.ROOT_DIR
     # test_data = pd.read_csv(os.path.join(root_dir, "hydromodel", "example", '01013500_lump_p_pe_q.txt'))
     return pd.read_csv(
-        os.path.join(root_dir, "hydromodel", "example", "hymod_input.csv"), sep=";"
+        os.path.join(root_dir, "hydromodel", "example", "hymod_input.csv")
     )
 
 
