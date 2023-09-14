@@ -98,7 +98,7 @@ class SpotSetup(object):
 
         return self.true_obs[:, 0, 0]
 
-    def objectivefunction(
+    def objective_function(
         self,
         simulation: Union[list, np.array],
         evaluation: Union[list, np.array],
