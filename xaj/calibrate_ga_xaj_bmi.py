@@ -49,14 +49,14 @@ def evaluate(individual, x_input, y_true, warmup_length, model):
     if model["name"] in ["xaj", "xaj_mz"]:
         # xaj model's output include streamflow and evaporation now,
         # but now we only calibrate the model with streamflow
-        model=xajBmi()
-        model.initialize("xaj/runxaj.yaml",params, x_input)
+        model = xajBmi()
+        model.initialize(os.path.relpath('runxaj.yaml'), params, x_input)
         while model.get_current_time() <= model.get_end_time('train'):
             model.update()
-        sim=model.get_value("discharge")
-        sim = np.expand_dims(sim, 0) 
+        sim = model.get_value("discharge")
+        sim = np.expand_dims(sim, 0)
         sim = np.expand_dims(sim, 1)
-        sim = np.transpose(sim, [2,1,0])
+        sim = np.transpose(sim, [2, 1, 0])
     else:
         raise NotImplementedError("We don't provide this model now")
     rmses = statRmse(y_true[warmup_length:, :, :], sim)
@@ -103,7 +103,7 @@ MAX = 1
 
 
 def calibrate_by_ga(
-    input_data, observed_output, deap_dir, warmup_length=30, model=None, ga_param=None
+        input_data, observed_output, deap_dir, warmup_length=30, model=None, ga_param=None
 ):
     """
     Use GA algorithm to find optimal parameters for hydrologic models
@@ -207,8 +207,8 @@ def calibrate_by_ga(
         pickle.dump(cp, cp_file)
 
     for gen in tqdm(range(ga_param["run_counts"]), desc="GA calibrating"):
-        
-        print(f"Generation {gen} started...") 
+
+        print(f"Generation {gen} started...")
         # Select the next generation individuals
         offspring = toolbox.select(pop, len(pop))
         # Clone the selected individuals
@@ -230,8 +230,8 @@ def calibrate_by_ga(
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         fitnesses = map(toolbox.evaluate, invalid_ind)
         for ind, fit in tqdm(
-            zip(invalid_ind, fitnesses),
-            desc=f"{str(gen + 1)} generation fitness calculating",
+                zip(invalid_ind, fitnesses),
+                desc=f"{str(gen + 1)} generation fitness calculating",
         ):
             ind.fitness.values = fit
 
@@ -256,7 +256,7 @@ def calibrate_by_ga(
             )
 
             with open(
-                os.path.join(deap_dir, f"epoch{str(gen + 1)}.pkl"), "wb"
+                    os.path.join(deap_dir, f"epoch{str(gen + 1)}.pkl"), "wb"
             ) as cp_file:
                 pickle.dump(cp, cp_file)
             print(f"Files of generation {gen} saved.")
@@ -265,15 +265,15 @@ def calibrate_by_ga(
 
 
 def show_ga_result(
-    deap_dir,
-    warmup_length,
-    basin_id,
-    the_data,
-    the_period,
-    basin_area,
-    model_info,
-    result_unit="mm/day",
-    train_mode=True,
+        deap_dir,
+        warmup_length,
+        basin_id,
+        the_data,
+        the_period,
+        basin_area,
+        model_info,
+        result_unit="mm/day",
+        train_mode=True,
 ):
     """
     show the result of GA
@@ -288,13 +288,13 @@ def show_ga_result(
     halloffame = cp["halloffame"]
     print(f"Best individual is: {halloffame[0]}, {halloffame[0].fitness.values}")
     train_test_flag = "train" if train_mode else "test"
-    
-    model=xajBmi()
-    model.initialize("xaj/runxaj.yaml",np.array(list(halloffame[0])).reshape(1, -1), the_data[:, :, 0:2])
+
+    model = xajBmi()
+    model.initialize("runxaj.yaml", np.array(list(halloffame[0])).reshape(1, -1), the_data[:, :, 0:2])
     while model.get_current_time() <= model.get_end_time('train'):
-            model.update()
-    best_simulation=model.get_value("discharge")
-    
+        model.update()
+    best_simulation = model.get_value("discharge")
+
     convert_unit_sim = hydro_constant.convert_unit(
         np.array(best_simulation).reshape(1, -1),
         # best_simulation,

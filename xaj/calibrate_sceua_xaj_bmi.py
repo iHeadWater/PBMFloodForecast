@@ -76,7 +76,7 @@ class SpotSetup(object):
             # xaj model's output include streamflow and evaporation now,
             # but now we only calibrate the model with streamflow
             
-        model.initialize("xaj/runxaj.yaml",params, self.p_and_e)
+        model.initialize('runxaj.yaml', params, self.p_and_e)
         while model.get_current_time() <= model.get_end_time('train'):
             model.update()
         sim=model.get_value("discharge")
