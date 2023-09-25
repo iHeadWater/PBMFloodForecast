@@ -14,11 +14,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import definitions 
+import definitions
 from hydromodel.utils import hydro_utils
-
-
-
 
 
 @pytest.fixture()
@@ -50,7 +47,7 @@ def test_save_data(txt_file, json_file, npy_file):
             "time": data["date"].values.tolist(),
             "basin": ["01013500"],
             "variable": variables,
-            "area"  : [2252.7],
+            "area": [2252.7],
         }
     )
     hydro_utils.serialize_json(data_info, json_file)
@@ -65,11 +62,11 @@ def test_save_data(txt_file, json_file, npy_file):
     # trans ft3/s to mm/day
     basin_area = 2252.7
     data[variables[-1]] = (
-        data[["streamflow(ft3/s)"]].values
-        * ft3tom3
-        / (basin_area * km2tom2)
-        * mtomm
-        * daytos
+            data[["streamflow(ft3/s)"]].values
+            * ft3tom3
+            / (basin_area * km2tom2)
+            * mtomm
+            * daytos
     )
     df = data[variables]
     hydro_utils.serialize_numpy(np.expand_dims(df.values, axis=1), npy_file)
