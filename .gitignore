@@ -174,3 +174,4 @@ hydromodel/example/example/*
 !/hydromodel/example/example/basins_lump_p_pe_q_*.npy
 !/hydromodel/example/example/data_info_*.json
 /.hydrodataset*/
+scripts
