@@ -68,12 +68,12 @@ def STEP4_end_rain_events(beginning_core, end_core, rain, fluct_rain_Tr, rain_mi
     end_rain = end_core.copy()
     rain = rain.T
     for g in range(end_core.size):
-        if fluct_rain_Tr[end_core[g]] < np.finfo(np.float64).eps and (
-                end_core[g] + 1 >= fluct_rain_Tr.size or fluct_rain_Tr[end_core[g] + 1] < np.finfo(np.float64).eps):
+        if end_core[g] + 2 < fluct_rain_Tr.size and \
+                (np.fabs(fluct_rain_Tr[end_core[g] + 1]) < np.finfo(np.float64).eps and np.fabs(fluct_rain_Tr[end_core[g] + 2]) < np.finfo(np.float64).eps):
             # case 1&2
-            if rain[end_core[g]] < np.finfo(np.float64).eps:
+            if np.fabs(rain[end_core[g]]) < np.finfo(np.float64).eps:
                 # case 1
-                while end_rain[g] > beginning_core[g] and rain[end_rain[g]] < np.finfo(np.float64).eps:
+                while end_rain[g] > beginning_core[g] and np.fabs(rain[end_rain[g]]) < np.finfo(np.float64).eps:
                     end_rain[g] = end_rain[g] - 1
             else:
                 # case 2
@@ -95,21 +95,123 @@ def STEP5_beginning_rain_events(beginning_core, end_rain, rain, fluct_rain_Tr, r
     beginning_rain = beginning_core.copy()
     rain = rain.T
     for g in range(beginning_core.size):
-        if fluct_rain_Tr[beginning_core[g]] < np.finfo(np.float64).eps \
-                and (beginning_core[g] + 1 >= fluct_rain_Tr.size or fluct_rain_Tr[beginning_core[g] + 1] < np.finfo(np.float64).eps) \
-                and rain[beginning_core[g]] < np.finfo(np.float64).eps:
+        if beginning_core[g] - 2 >= 0 \
+                and (np.fabs(fluct_rain_Tr[beginning_core[g] - 1]) < np.finfo(np.float64).eps and np.fabs(fluct_rain_Tr[beginning_core[g] - 2]) < np.finfo(
+            np.float64).eps) \
+                and np.fabs(rain[beginning_core[g]]) < np.finfo(np.float64).eps:
             # case 1
-            while beginning_rain[g] < end_rain[g] and rain[beginning_rain[g]] < np.finfo(np.float64).eps:
+            while beginning_rain[g] < end_rain[g] and np.fabs(rain[beginning_rain[g]]) < np.finfo(np.float64).eps:
                 beginning_rain[g] = beginning_rain[g] + 1
         else:
             # case 2&3
-            bound = end_rain[g - 1] if g - 1 > 0 else -1
+            bound = end_rain[g - 1] if g - 1 >= 0 else -1
             while beginning_rain[g] > bound and rain[beginning_rain[g]] > rain_min:
                 beginning_rain[g] = beginning_rain[g] - 1
-            end_rain[g] = end_rain[g] + 1  # 回到第一个
+            beginning_rain[g] = beginning_rain[g] + 1  # 回到第一个
     return beginning_rain
 
 
-# very bad, ignoring it
-def STEP6_checks_on_rain_events(beginning_rain, end_rain, rain, rain_min):
-    return (beginning_rain, end_rain)
+def STEP6_checks_on_rain_events(beginning_rain, end_rain, rain, rain_min, beginning_core, end_core):
+    rain = rain.T
+    beginning_rain = beginning_rain.copy()
+    end_rain = end_rain.copy()
+    if beginning_rain[0] == 0:  # 掐头
+        beginning_rain = beginning_rain[1:]
+        end_rain = end_rain[1:]
+        beginning_core = beginning_core[1:]
+        end_core = end_core[1:]
+    if end_rain[-1] == rain.size - 1:  # 去尾
+        beginning_rain = beginning_rain[:-2]
+        end_rain = end_rain[:-2]
+        beginning_core = beginning_core[:-2]
+        end_core = end_core[:-2]
+    error_time_reversed = beginning_rain > end_rain
+    error_wrong_delimiter = np.logical_or(rain[beginning_rain - 1] > rain_min, rain[end_rain + 1] > rain_min)
+    beginning_rain[error_time_reversed] = -2
+    beginning_rain[error_wrong_delimiter] = -2
+    end_rain[error_time_reversed] = -2
+    end_rain[error_wrong_delimiter] = -2
+    beginning_core[error_time_reversed] = -2
+    beginning_core[error_wrong_delimiter] = -2
+    end_core[error_time_reversed] = -2
+    end_core[error_wrong_delimiter] = -2
+    beginning_rain = beginning_rain[beginning_rain != -2]
+    end_rain = end_rain[end_rain != -2]
+    beginning_core = beginning_core[beginning_core != -2]
+    end_core = end_core[end_core != -2]
+    return beginning_rain, end_rain, beginning_core, end_core
+
+
+def STEP7_end_flow_events(end_rain_checked, beginning_core, end_core, rain, fluct_rain_Tr, fluct_flow_Tr, Tr):
+    end_flow = np.empty(end_core.size, dtype=int)
+    for g in range(end_rain_checked.size):
+        if end_core[g] + 2 < fluct_rain_Tr.size and \
+                (np.fabs(fluct_rain_Tr[end_core[g] + 1]) < np.finfo(np.float64).eps and np.fabs(fluct_rain_Tr[end_core[g] + 2]) < np.finfo(np.float64).eps):
+            # case 1
+            end_flow[g] = end_rain_checked[g]
+            bound = beginning_core[g + 1] + Tr if g + 1 < beginning_core.size else rain.size
+            bound = min(bound, rain.size)  # 防溢出
+            # 若flow为负，先跳过
+            while end_flow[g] < bound and fluct_flow_Tr[end_flow[g]] <= 0:
+                end_flow[g] = end_flow[g] + 1
+            while end_flow[g] < bound and fluct_flow_Tr[end_flow[g]] > 0:
+                end_flow[g] = end_flow[g] + 1
+            end_flow[g] = end_flow[g] - 1  # 回到最后一个
+        else:
+            # case 2
+            end_flow[g] = end_core[g]
+            while end_flow[g] >= beginning_core[g] and fluct_flow_Tr[end_flow[g]] <= 0:
+                end_flow[g] = end_flow[g] - 1
+    return end_flow
+
+
+def STEP8_beginning_flow_events(beginning_rain_checked, end_rain_checked, rain, beginning_core, fluct_rain_Tr, fluct_flow_Tr):
+    beginning_flow = np.empty(beginning_rain_checked.size, dtype=int)
+    for g in range(beginning_rain_checked.size):
+        if beginning_core[g] - 2 >= 0 \
+                and (np.fabs(fluct_rain_Tr[beginning_core[g] - 1]) < np.finfo(np.float64).eps and np.fabs(fluct_rain_Tr[beginning_core[g] - 2]) < np.finfo(
+            np.float64).eps):
+            beginning_flow[g] = beginning_rain_checked[g]  # case 1
+        else:
+            beginning_flow[g] = beginning_core[g]  # case 2
+        while beginning_flow[g] < end_rain_checked[g] and fluct_flow_Tr[beginning_flow[g]] >= 0:
+            beginning_flow[g] = beginning_flow[g] + 1
+    return beginning_flow
+
+
+def STEP9_checks_on_flow_events(beginning_rain_checked, end_rain_checked, beginning_flow, end_flow, fluct_flow_Tr):
+    error_time_reversed = beginning_flow > end_flow
+    error_wrong_fluct = np.logical_or(np.logical_or(fluct_flow_Tr[beginning_flow] > 0, fluct_flow_Tr[end_flow] < 0), np.logical_or(beginning_flow <
+                                                                                                                                   beginning_rain_checked, end_flow < end_rain_checked))
+    beginning_flow[error_time_reversed] = -3
+    beginning_flow[error_wrong_fluct] = -3
+    end_flow[error_time_reversed] = -3
+    end_flow[error_wrong_fluct] = -3
+    beginning_flow = beginning_flow[beginning_flow != -3]
+    end_flow = end_flow[end_flow != -3]
+    return beginning_flow, end_flow
+
+
+def STEP10_checks_on_overlapping_events(beginning_rain_ungrouped, end_rain_ungrouped, beginning_flow_ungrouped, end_flow_ungrouped, time):
+    # rain
+    order1 = np.reshape(np.hstack((np.reshape(beginning_rain_ungrouped, (-1, 1)),
+                                   np.reshape(end_rain_ungrouped, (-1, 1)))), (1, -1))
+    reversed1 = np.diff(order1) <= 0
+    order1[np.hstack((reversed1, [[False]]))] = -2
+    order1[np.hstack(([[False]], reversed1))] = -2
+    order1 = order1[order1 != -2]
+    # flow
+    order2 = np.reshape(np.hstack((np.reshape(beginning_flow_ungrouped, (-1, 1)),
+                                   np.reshape(end_flow_ungrouped, (-1, 1)))), (1, -1))
+    reversed2 = np.diff(order2) <= 0
+    order2[np.hstack((reversed2, [[False]]))] = -3
+    order2[np.hstack(([[False]], reversed2))] = -3
+    order2 = order2[order2 != -3]
+    # group
+    rain_grouped = np.reshape(order1, (-1, 2)).T
+    beginning_rain_grouped = rain_grouped[0]
+    end_rain_grouped = rain_grouped[1]
+    flow_grouped = np.reshape(order2, (-1, 2)).T
+    beginning_flow_grouped = flow_grouped[0]
+    end_flow_grouped = flow_grouped[1]
+    return time[beginning_rain_grouped], time[end_rain_grouped], time[beginning_flow_grouped], time[end_flow_grouped]
