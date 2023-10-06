@@ -5,6 +5,7 @@ from os.path import relpath
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import shapely
 import whitebox
 from geopandas import GeoDataFrame
 from shapely import Point
@@ -87,13 +88,16 @@ def test_rain_average():
     origin_rain_data = pd.DataFrame(series_dict)
     # 读取voronoi文件
     voronoi_gdf = get_voronoi()
-    stcd_area_dict = voronoi_gdf[['STCD', 'area']].set_index('STCD').to_dict()
-    area_sum = voronoi_gdf['area'].sum()
+    stcd_area_dict = {}
+    for i in range(0, len(voronoi_gdf)):
+        polygon = voronoi_gdf.geometry[i]
+        area = polygon.area*12100
+        stcd_area_dict[voronoi_gdf['STCD'][i]] = area
     rain_aver_list = []
     for i in range(0, len(origin_rain_data)):
         rain_aver = 0
         for stcd in origin_rain_data.columns:
-            rain_aver += (origin_rain_data.iloc[i])[stcd] * stcd_area_dict['area'][stcd]/area_sum
+            rain_aver += (origin_rain_data.iloc[i])[stcd] * stcd_area_dict[stcd]/gdf_biliu_shp['area'][0]
         rain_aver_list.append(rain_aver)
     return rain_aver_list
 
