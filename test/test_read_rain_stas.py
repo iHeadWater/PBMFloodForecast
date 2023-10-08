@@ -10,6 +10,10 @@ from pandas import DataFrame
 from shapely import Point
 
 import definitions
+from hydromodel.division.dmca_esr import STEP1_STEP2_Tr_and_fluctuations_timeseries, STEP3_core_identification, \
+    STEP4_end_rain_events, STEP6_checks_on_rain_events, STEP7_end_flow_events, STEP8_beginning_flow_events, \
+    STEP5_beginning_rain_events, STEP9_checks_on_flow_events, STEP10_checks_on_overlapping_events
+from xaj.calibrate_ga_xaj_bmi import calibrate_by_ga
 
 
 class my:
@@ -38,7 +42,7 @@ def voronoi_from_shp(src, des, data_dir='.'):
     wbt.voronoi_diagram(src, des, callback=my.my_callback)
 
 
-def test_rain_average():
+def get_rain_average():
     '''
     engine = sqlalchemy.create_engine("mssql+pymssql://jupyterhub_readonly:jupyterhub_readonly@10.55.55.108:1433/rtdb")
     query_stations = "SELECT STCD,STNM,LGTD,LTTD FROM rtdb.dbo.ST_STBPRP_B WHERE STTP = 'PP'"
@@ -100,7 +104,7 @@ def test_rain_average():
     return rain_aver_list
 
 
-def test_infer_inq():
+def get_infer_inq():
     '''
     engine = sqlalchemy.create_engine("mssql+pymssql://jupyterhub_readonly:jupyterhub_readonly@10.55.55.108:1433/rtdb")
     query_stations = "SELECT * FROM rtdb.dbo.ST_RSVR_R WHERE STCD = '21401550'"
@@ -124,6 +128,41 @@ def test_infer_inq():
     new_df = new_df.set_index('TM').resample('H').interpolate()
     new_df.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliu_inq_interpolated.csv'))
     return new_df['INQ'].to_numpy()
+
+
+def test_biliu_rain_flow_division():
+    rain = get_rain_average()
+    flow = get_infer_inq()
+    rain_min = 0.02
+    max_window = 100
+    # rain和flow之间的索引要尽量“对齐”
+    time = range(0, len(rain))
+    Tr, fluct_rain_Tr, fluct_flow_Tr, fluct_bivariate_Tr = STEP1_STEP2_Tr_and_fluctuations_timeseries(rain, flow,
+                                                                                                      rain_min,
+                                                                                                      max_window)
+    beginning_core, end_core = STEP3_core_identification(fluct_bivariate_Tr)
+    end_rain = STEP4_end_rain_events(beginning_core, end_core, rain, fluct_rain_Tr, rain_min)
+    beginning_rain = STEP5_beginning_rain_events(beginning_core, end_rain, rain, fluct_rain_Tr, rain_min)
+    beginning_rain_checked, end_rain_checked, beginning_core, end_core = STEP6_checks_on_rain_events(beginning_rain,
+                                                                                                     end_rain, rain,
+                                                                                                     rain_min,
+                                                                                                     beginning_core,
+                                                                                                     end_core)
+    end_flow = STEP7_end_flow_events(end_rain_checked, beginning_core, end_core, rain, fluct_rain_Tr, fluct_flow_Tr, Tr)
+    beginning_flow = STEP8_beginning_flow_events(beginning_rain_checked, end_rain_checked, rain, beginning_core,
+                                                 fluct_rain_Tr, fluct_flow_Tr)
+    beginning_flow_checked, end_flow_checked = STEP9_checks_on_flow_events(beginning_rain_checked, end_rain_checked,
+                                                                           beginning_flow,
+                                                                           end_flow, fluct_flow_Tr)
+    BEGINNING_RAIN, BEGINNING_FLOW, END_RAIN, END_FLOW = STEP10_checks_on_overlapping_events(beginning_flow_checked,
+                                                                                             end_flow_checked,
+                                                                                             beginning_flow_checked,
+                                                                                             end_flow_checked, time)
+    return BEGINNING_RAIN, BEGINNING_FLOW, END_RAIN, END_FLOW
+
+
+def test_calibrate_flow():
+     #calibrate_by_ga()
 
 
 def get_voronoi():
