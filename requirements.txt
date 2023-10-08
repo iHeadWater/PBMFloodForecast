@@ -17,3 +17,5 @@ scikit-learn~=1.3.0
 requests~=2.31.0
 grpc4bmi~=0.4.0
 pyogrio
+cdsapi
+whitebox

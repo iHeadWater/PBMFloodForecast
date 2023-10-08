@@ -1,15 +1,13 @@
 import os.path
 import shutil
-from os.path import relpath
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-import shapely
 import whitebox
 from geopandas import GeoDataFrame
+from pandas import DataFrame
 from shapely import Point
-import sqlalchemy
 
 import definitions
 
@@ -91,15 +89,41 @@ def test_rain_average():
     stcd_area_dict = {}
     for i in range(0, len(voronoi_gdf)):
         polygon = voronoi_gdf.geometry[i]
-        area = polygon.area*12100
+        area = polygon.area * 12100
         stcd_area_dict[voronoi_gdf['STCD'][i]] = area
     rain_aver_list = []
     for i in range(0, len(origin_rain_data)):
         rain_aver = 0
         for stcd in origin_rain_data.columns:
-            rain_aver += (origin_rain_data.iloc[i])[stcd] * stcd_area_dict[stcd]/gdf_biliu_shp['area'][0]
+            rain_aver += (origin_rain_data.iloc[i])[stcd] * stcd_area_dict[stcd] / gdf_biliu_shp['area'][0]
         rain_aver_list.append(rain_aver)
     return rain_aver_list
+
+
+def test_infer_inq():
+    '''
+    engine = sqlalchemy.create_engine("mssql+pymssql://jupyterhub_readonly:jupyterhub_readonly@10.55.55.108:1433/rtdb")
+    query_stations = "SELECT * FROM rtdb.dbo.ST_RSVR_R WHERE STCD = '21401550'"
+    stations_river_stcd = pd.read_sql(query_stations, engine)
+    stations_river_stcd.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliu_rsvr.csv'))
+    '''
+    biliu_flow_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliuriver_rsvr.csv'),
+                                engine='c', parse_dates=['TM'])
+    biliu_flow_df: DataFrame = biliu_flow_df.fillna(-1)
+    inq_array = biliu_flow_df['INQ'].to_numpy()
+    otq_array = biliu_flow_df['OTQ'].to_numpy()
+    w_array = biliu_flow_df['W'].to_numpy()
+    tm_array = biliu_flow_df['TM'].to_numpy()
+    for i in range(1, len(biliu_flow_df)):
+        if (int(inq_array[i]) == -1) & (int(otq_array[i]) != -1):
+            # TypeError: unsupported operand type(s) for -: 'str' and 'str'
+            time_div = np.timedelta64(tm_array[i] - tm_array[i - 1]) / np.timedelta64(1, 'h')
+            inq_array[i] = otq_array[i] + (w_array[i] - w_array[i - 1]) / time_div
+    # 还要根据时间间隔插值
+    new_df = pd.DataFrame({'TM': tm_array, 'INQ': inq_array, 'OTQ': otq_array})
+    new_df = new_df.set_index('TM').resample('H').interpolate()
+    new_df.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliu_inq_interpolated.csv'))
+    return new_df['INQ'].to_numpy()
 
 
 def get_voronoi():
