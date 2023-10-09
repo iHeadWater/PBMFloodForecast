@@ -127,16 +127,17 @@ def get_infer_inq():
     new_df = pd.DataFrame({'TM': tm_array, 'INQ': inq_array, 'OTQ': otq_array})
     new_df = new_df.set_index('TM').resample('H').interpolate()
     new_df.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliu_inq_interpolated.csv'))
-    return new_df['INQ'].to_numpy()
+    return new_df['INQ'].to_numpy(), new_df.index.to_numpy()
 
 
 def test_biliu_rain_flow_division():
-    rain = get_rain_average()
-    flow = get_infer_inq()
-    rain_min = 0.02
-    max_window = 100
     # rain和flow之间的索引要尽量“对齐”
-    time = range(0, len(rain))
+    rain = np.array(get_rain_average())
+    flow = (get_infer_inq()[0])[72786:81917]
+    windows = np.arange(0, len(rain), 1)
+    time = (get_infer_inq()[1])[72786:81917]
+    rain_min = 0.01
+    max_window = 100
     Tr, fluct_rain_Tr, fluct_flow_Tr, fluct_bivariate_Tr = STEP1_STEP2_Tr_and_fluctuations_timeseries(rain, flow,
                                                                                                       rain_min,
                                                                                                       max_window)
@@ -154,15 +155,29 @@ def test_biliu_rain_flow_division():
     beginning_flow_checked, end_flow_checked = STEP9_checks_on_flow_events(beginning_rain_checked, end_rain_checked,
                                                                            beginning_flow,
                                                                            end_flow, fluct_flow_Tr)
-    BEGINNING_RAIN, BEGINNING_FLOW, END_RAIN, END_FLOW = STEP10_checks_on_overlapping_events(beginning_flow_checked,
-                                                                                             end_flow_checked,
+    BEGINNING_RAIN, END_RAIN, BEGINNING_FLOW, END_FLOW = STEP10_checks_on_overlapping_events(beginning_rain_checked,
+                                                                                             end_rain_checked,
                                                                                              beginning_flow_checked,
-                                                                                             end_flow_checked, time)
-    return BEGINNING_RAIN, BEGINNING_FLOW, END_RAIN, END_FLOW
+                                                                                             end_flow_checked, windows)
+    for i in range(0, len(BEGINNING_RAIN)):
+        # 雨洪长度可能不一致，姑且长度取最大值
+        start = BEGINNING_RAIN[i] if BEGINNING_RAIN[i] < BEGINNING_FLOW[i] else BEGINNING_FLOW[i]
+        end = END_RAIN[i] if END_RAIN[i] > END_FLOW[i] else END_FLOW[i]
+        rain_session = rain[start:end + 1]
+        flow_session = flow[start:end + 1]
+        rain_time = time[start:end + 1]
+        session_df = pd.DataFrame({'RAIN_TM': rain_time, 'RAIN_SESSION': rain_session, 'FLOW_SESSION': flow_session})
+        date_path = np.datetime_as_string(rain_time[0]).split('T')[0] + np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[0] + np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[1]
+        session_df.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/sessions/' +
+                                       date_path + '_session.csv'))
+    # XXX_FLOW 和 XXX_RAIN 长度不同，原因暂时未知，可能是数据本身问题（如插值导致）或者单位未修整
+    return BEGINNING_RAIN, END_RAIN, BEGINNING_FLOW, END_FLOW
 
 
+'''
 def test_calibrate_flow():
      #calibrate_by_ga()
+     '''
 
 
 def get_voronoi():
