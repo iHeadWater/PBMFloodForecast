@@ -19,8 +19,8 @@ def test_flow():
     '''
     query = "select * from STInfo"
     ST_PPTN_STID = pd.read_sql(query, engine)
-    ST_PPTN_STID.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliu_total_stas.csv'), encoding='utf16')
+    ST_PPTN_STID.to_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu_total_stas.csv'), encoding='utf16')
     '''
     query = "select * from Day_Water where STID='4031'"
     data_yushi = pd.read_sql(query, engine)
-    data_yushi.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/yushi_flow.csv'))
+    data_yushi.to_csv(os.path.join(definitions.ROOT_DIR, 'example/yushi_flow.csv'))

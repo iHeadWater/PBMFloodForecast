@@ -6,14 +6,13 @@ import numpy as np
 import pandas as pd
 import whitebox
 from geopandas import GeoDataFrame
+from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries, step3_core_identification, \
+    step4_end_rain_events, step5_beginning_rain_events, step6_checks_on_rain_events, step8_beginning_flow_events, \
+    step7_end_flow_events, step9_checks_on_flow_events, step10_checks_on_overlapping_events
 from pandas import DataFrame
 from shapely import Point
 
 import definitions
-from hydromodel.division.dmca_esr import STEP1_STEP2_Tr_and_fluctuations_timeseries, STEP3_core_identification, \
-    STEP4_end_rain_events, STEP6_checks_on_rain_events, STEP7_end_flow_events, STEP8_beginning_flow_events, \
-    STEP5_beginning_rain_events, STEP9_checks_on_flow_events, STEP10_checks_on_overlapping_events
-from xaj.calibrate_ga_xaj_bmi import calibrate_by_ga
 
 
 class my:
@@ -48,7 +47,7 @@ def get_rain_average():
     query_stations = "SELECT STCD,STNM,LGTD,LTTD FROM rtdb.dbo.ST_STBPRP_B WHERE STTP = 'PP'"
     pp_df = pd.read_sql(query_stations, engine)
     '''
-    pp_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/rain_stations.csv'), engine='c').drop(
+    pp_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/rain_stations.csv'), engine='c').drop(
         columns=['Unnamed: 0'])
     geo_list = []
     stcd_list = []
@@ -60,13 +59,13 @@ def get_rain_average():
         stnm_list.append(pp_df['STNM'][i])
         geo_list.append(Point(xc, yc))
     gdf_pps: GeoDataFrame = gpd.GeoDataFrame({'STCD': stcd_list, 'STNM': stnm_list}, geometry=geo_list)
-    gdf_biliu_shp: GeoDataFrame = gpd.read_file(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliuriver_shp'
+    gdf_biliu_shp: GeoDataFrame = gpd.read_file(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp'
                                                                                    '/碧流河流域.shp'), engine='pyogrio')
     gdf_rain_stations = gpd.sjoin(gdf_pps, gdf_biliu_shp, 'inner', 'intersects')
     gdf_rain_stations = gdf_rain_stations[~(gdf_rain_stations['STCD'] == '21422950')]
     gdf_rain_stations.to_file(
-        os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliuriver_shp/biliu_basin_rain_stas.shp'))
-    rain_path = os.path.join(definitions.ROOT_DIR, 'hydromodel/example/rain_datas/')
+        os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'))
+    rain_path = os.path.join(definitions.ROOT_DIR, 'example/rain_datas/')
     '''
     pp_list = gdf_rain_stations['STCD'].tolist()
     for i in pp_list:
@@ -109,9 +108,9 @@ def get_infer_inq():
     engine = sqlalchemy.create_engine("mssql+pymssql://jupyterhub_readonly:jupyterhub_readonly@10.55.55.108:1433/rtdb")
     query_stations = "SELECT * FROM rtdb.dbo.ST_RSVR_R WHERE STCD = '21401550'"
     stations_river_stcd = pd.read_sql(query_stations, engine)
-    stations_river_stcd.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliu_rsvr.csv'))
+    stations_river_stcd.to_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu_rsvr.csv'))
     '''
-    biliu_flow_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliuriver_rsvr.csv'),
+    biliu_flow_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_rsvr.csv'),
                                 engine='c', parse_dates=['TM'])
     biliu_flow_df: DataFrame = biliu_flow_df.fillna(-1)
     inq_array = biliu_flow_df['INQ'].to_numpy()
@@ -126,7 +125,7 @@ def get_infer_inq():
     # 还要根据时间间隔插值
     new_df = pd.DataFrame({'TM': tm_array, 'INQ': inq_array, 'OTQ': otq_array})
     new_df = new_df.set_index('TM').resample('H').interpolate()
-    new_df.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliu_inq_interpolated.csv'))
+    new_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu_inq_interpolated.csv'))
     return new_df['INQ'].to_numpy(), new_df.index.to_numpy()
 
 
@@ -138,24 +137,24 @@ def test_biliu_rain_flow_division():
     time = (get_infer_inq()[1])[72786:81917]
     rain_min = 0.01
     max_window = 100
-    Tr, fluct_rain_Tr, fluct_flow_Tr, fluct_bivariate_Tr = STEP1_STEP2_Tr_and_fluctuations_timeseries(rain, flow,
+    Tr, fluct_rain_Tr, fluct_flow_Tr, fluct_bivariate_Tr = step1_step2_tr_and_fluctuations_timeseries(rain, flow,
                                                                                                       rain_min,
                                                                                                       max_window)
-    beginning_core, end_core = STEP3_core_identification(fluct_bivariate_Tr)
-    end_rain = STEP4_end_rain_events(beginning_core, end_core, rain, fluct_rain_Tr, rain_min)
-    beginning_rain = STEP5_beginning_rain_events(beginning_core, end_rain, rain, fluct_rain_Tr, rain_min)
-    beginning_rain_checked, end_rain_checked, beginning_core, end_core = STEP6_checks_on_rain_events(beginning_rain,
+    beginning_core, end_core = step3_core_identification(fluct_bivariate_Tr)
+    end_rain = step4_end_rain_events(beginning_core, end_core, rain, fluct_rain_Tr, rain_min)
+    beginning_rain = step5_beginning_rain_events(beginning_core, end_rain, rain, fluct_rain_Tr, rain_min)
+    beginning_rain_checked, end_rain_checked, beginning_core, end_core = step6_checks_on_rain_events(beginning_rain,
                                                                                                      end_rain, rain,
                                                                                                      rain_min,
                                                                                                      beginning_core,
                                                                                                      end_core)
-    end_flow = STEP7_end_flow_events(end_rain_checked, beginning_core, end_core, rain, fluct_rain_Tr, fluct_flow_Tr, Tr)
-    beginning_flow = STEP8_beginning_flow_events(beginning_rain_checked, end_rain_checked, rain, beginning_core,
+    end_flow = step7_end_flow_events(end_rain_checked, beginning_core, end_core, rain, fluct_rain_Tr, fluct_flow_Tr, Tr)
+    beginning_flow = step8_beginning_flow_events(beginning_rain_checked, end_rain_checked, rain, beginning_core,
                                                  fluct_rain_Tr, fluct_flow_Tr)
-    beginning_flow_checked, end_flow_checked = STEP9_checks_on_flow_events(beginning_rain_checked, end_rain_checked,
+    beginning_flow_checked, end_flow_checked = step9_checks_on_flow_events(beginning_rain_checked, end_rain_checked,
                                                                            beginning_flow,
                                                                            end_flow, fluct_flow_Tr)
-    BEGINNING_RAIN, END_RAIN, BEGINNING_FLOW, END_FLOW = STEP10_checks_on_overlapping_events(beginning_rain_checked,
+    BEGINNING_RAIN, END_RAIN, BEGINNING_FLOW, END_FLOW = step10_checks_on_overlapping_events(beginning_rain_checked,
                                                                                              end_rain_checked,
                                                                                              beginning_flow_checked,
                                                                                              end_flow_checked, windows)
@@ -168,7 +167,7 @@ def test_biliu_rain_flow_division():
         rain_time = time[start:end + 1]
         session_df = pd.DataFrame({'RAIN_TM': rain_time, 'RAIN_SESSION': rain_session, 'FLOW_SESSION': flow_session})
         date_path = np.datetime_as_string(rain_time[0]).split('T')[0] + np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[0] + np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[1]
-        session_df.to_csv(os.path.join(definitions.ROOT_DIR, 'hydromodel/example/sessions/' +
+        session_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/sessions/' +
                                        date_path + '_session.csv'))
     # XXX_FLOW 和 XXX_RAIN 长度不同，原因暂时未知，可能是数据本身问题（如插值导致）或者单位未修整
     return BEGINNING_RAIN, END_RAIN, BEGINNING_FLOW, END_FLOW
@@ -181,10 +180,10 @@ def test_calibrate_flow():
 
 
 def get_voronoi():
-    origin_basin_shp = os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliuriver_shp/碧流河流域.shp')
-    dup_basin_shp = os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliuriver_shp/碧流河流域_副本.shp')
+    origin_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域.shp')
+    dup_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域_副本.shp')
     shutil.copyfile(origin_basin_shp, dup_basin_shp)
-    node_shp = os.path.join(definitions.ROOT_DIR, 'hydromodel/example/biliuriver_shp/biliu_basin_rain_stas.shp')
+    node_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp')
     voronoi_from_shp(src=node_shp, des=dup_basin_shp)
     voronoi_gdf = gpd.read_file(dup_basin_shp, engine='pyogrio')
     return voronoi_gdf
