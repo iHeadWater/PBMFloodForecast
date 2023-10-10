@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+import definitions
+
 c = cdsapi.Client()  # 创建用户
 
 # 数据信息字典
@@ -24,7 +26,7 @@ dic = {
         '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
         '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'
     ],
-    'area': [40.34, 122.32, 39.77, 122.90]
+    'area': [41, 122, 39, 123]
 }
 
 
@@ -37,62 +39,44 @@ def test_download_era5():
             dic['year'] = str(y)
             dic['month'] = str(m).zfill(2)
             dic['day'] = [str(d).zfill(2) for d in range(1, day_num + 1)]
-            filename = '/home/forestbat/rain_datas/era5_datas_' + str(y) + str(m).zfill(2) + '.nc'  # 文件存储路径
+            filename = os.path.join(definitions.ROOT_DIR, 'example/era5_data/', 'era5_datas_' + str(y) + str(m).zfill(2) + '.nc')  # 文件存储路径
             c.retrieve('reanalysis-era5-land', dic, filename)
 
 
 def test_average_pet():
-    path = 'D:/研究生/毕业论文/new毕业论文/预答辩/碧流河水库/'
-
+    path = os.path.join(definitions.ROOT_DIR, 'example/era5_data/')
     ds = xr.open_dataset(path + 'era5/201201.nc')
-    times = pd.to_datetime(ds['time'].values * 3600, origin='1900-01-01')
     lats = ds['latitude'].values
     lons = ds['longitude'].values
-
-    grid = pd.read_excel(path + '计算蒸发/grid.xlsx')
-
+    grid = pd.read_excel(path + 'grid.xlsx')
     test = pd.DataFrame({'num': range(1, 34), 'latitude': np.nan, 'longitude': np.nan})
     test = test.astype(float)
-
     for i in range(len(grid['lat'])):
         test['latitude'][i] = np.where(lats == grid['lat'][i])[0][0]
         test['longitude'][i] = np.where(lons == grid['lon'][i])[0][0]
-
     filenames = ['era5/' + f for f in os.listdir(path + 'era5/')]
-
     pev_ = pd.DataFrame({'num': range(1, 96433), 'pev': np.nan})
     pev_ = pev_.astype(float)
-
     for i in range(len(test['num'])):
-
         sum_time = 0
-
         for f in filenames:
             ds = xr.open_dataset(path + f)
             pev = ds['pev'].values
             times = pd.to_datetime(ds['time'].values * 3600, origin='1900-01-01')
-
             for t in range(len(times)):
                 pev_[t + sum_time]['pev'] = pev[test['longitude'][i], test['latitude'][i], t] * -100
-
             pev_[pev_ < 0] = 0
             sum_time += len(times)
-
-        pev_.to_excel(path + '计算蒸发/pev_' +
+        pev_.to_excel(path + 'pet_calc/pev_' +
                       str(grid['lat'][i]) + '_' + str(grid['lon'][i]) + '.xlsx')
-
     start = datetime(2012, 1, 1, 8)
     end = datetime(2023, 1, 1, 7)
     timesteps = pd.date_range(start, end, freq='H')
-
     pre = pd.DataFrame(index=timesteps, columns=range(1, 34))
-
     for i in range(len(grid['FID'])):
-        data = pd.read_excel(path + '计算蒸发/pev_' +
+        data = pd.read_excel(path + 'pet_calc/pev_' +
                              str(grid['lat'][i]) + '_' + str(grid['lon'][i]) + '.xlsx')
-
         pre.iloc[:, i] = data['pev']
-
     pev_jieguo = pd.DataFrame({'time': timesteps})
     pev_jieguo['pre'] = pre.mean(axis=1)
-    pev_jieguo.to_excel(path + '计算蒸发/jieguo.xlsx')
+    pev_jieguo.to_excel(path + 'pet_calc/PET_result.xlsx')
