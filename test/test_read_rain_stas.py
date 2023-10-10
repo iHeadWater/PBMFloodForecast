@@ -11,6 +11,7 @@ from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries
     step7_end_flow_events, step9_checks_on_flow_events, step10_checks_on_overlapping_events
 from pandas import DataFrame
 from shapely import Point
+from xaj.calibrate_ga_xaj_bmi import calibrate_by_ga
 
 import definitions
 
@@ -65,8 +66,7 @@ def get_rain_average():
     for root, dirs, files in os.walk(rain_path):
         for file in files:
             stcd = file.split('_')[0]
-            rain_table = pd.read_csv(os.path.join(rain_path, file), engine='c')
-            rain_table['TM'] = pd.to_datetime(rain_table['TM'])
+            rain_table = pd.read_csv(os.path.join(rain_path, file), engine='c', parse_dates=['TM'])
             # 参差不齐，不能按照时间选择，先按照索引硬对
             # drp_series = rain_table['DRP'].loc[(rain_table['TM'] > pd.to_datetime(start_date)) & (rain_table['TM'] < pd.to_datetime(end_date))].fillna(0).tolist()
             # 21422950站点不能用, 要移除
@@ -141,27 +141,31 @@ def test_biliu_rain_flow_division():
                                                                                              end_rain_checked,
                                                                                              beginning_flow_checked,
                                                                                              end_flow_checked, windows)
-
-    for i in range(0, len(BEGINNING_RAIN)):
+    # XXX_FLOW 和 XXX_RAIN 长度不同，原因暂时未知，可能是数据本身问题（如插值导致）或者单位未修整
+    # 单位修整后依旧难以抢救，只能先选靠前的几场
+    session_amount = 5
+    for i in range(0, session_amount):
         # 雨洪长度可能不一致，姑且长度取最大值
         start = BEGINNING_RAIN[i] if BEGINNING_RAIN[i] < BEGINNING_FLOW[i] else BEGINNING_FLOW[i]
         end = END_RAIN[i] if END_RAIN[i] > END_FLOW[i] else END_FLOW[i]
         rain_session = rain[start:end + 1]
-        flow_session = flow_mm_h[start:end + 1]
+        flow_session_mm_h = flow_mm_h[start:end + 1]
+        flow_session_m3_s = flow_m3_s[start:end + 1]
         rain_time = time[start:end + 1]
-        session_df = pd.DataFrame({'RAIN_TM': rain_time, 'RAIN_SESSION': rain_session, 'FLOW_SESSION': flow_session})
+        session_df = pd.DataFrame({'RAIN_TM': rain_time, 'RAIN_SESSION': rain_session, 'FLOW_SESSION_MM_H': flow_session_mm_h, 'FLOW_SESSION_M3_S':flow_session_m3_s})
         date_path = np.datetime_as_string(rain_time[0]).split('T')[0] + np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[0] + np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[1]
         session_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/sessions/' +
                                        date_path + '_session.csv'))
-    # XXX_FLOW 和 XXX_RAIN 长度不同，原因暂时未知，可能是数据本身问题（如插值导致）或者单位未修整
-    # 单位修整后依旧难以抢救，只能先选靠前的几场
     return BEGINNING_RAIN, END_RAIN, BEGINNING_FLOW, END_FLOW
 
 
-'''
 def test_calibrate_flow():
-     #calibrate_by_ga()
-     '''
+    session_path = os.path.join(definitions.ROOT_DIR, 'example/sessions/')
+    for dir_name, sub_dir, files in os.walk(session_path):
+        for file in files:
+            session_df = pd.read_csv(file, engine='c')
+            # calibrate_by_ga()
+
 
 
 def get_voronoi():
