@@ -19,3 +19,4 @@ grpc4bmi~=0.4.0
 pyogrio
 cdsapi
 whitebox
+hydromodel-calibrate-base
