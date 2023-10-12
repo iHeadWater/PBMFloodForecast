@@ -12,8 +12,8 @@
   forcing_data: "/example/01013500_lump_p_pe_q.txt"
   json_file: "/example/data_info.json"
   npy_file: "/example/basins_lump_p_pe_q.npy"
-  warmup_length: 360
-  basin_area: 2252.7
+  warmup_length: 24
+  basin_area: 2097
   train_period: ["1990-01-01", "2000-12-31"]
   test_period: ["2001-01-01", "2009-12-31"]
   period: ["1990-01-01", "2009-12-31"]

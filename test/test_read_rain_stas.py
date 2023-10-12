@@ -11,7 +11,7 @@ from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries
     step7_end_flow_events, step9_checks_on_flow_events, step10_checks_on_overlapping_events
 from pandas import DataFrame
 from shapely import Point
-from xaj.calibrate_ga_xaj_bmi import calibrate_by_ga  # noqa:401
+from xaj.calibrate_ga_xaj_bmi import calibrate_by_ga
 
 import definitions
 
@@ -165,10 +165,12 @@ def test_biliu_rain_flow_division():
 
 # need fusion with the last test
 def test_calibrate_flow():
+    deap_dir = os.path.join(definitions.ROOT_DIR, 'example/deap_dir/')
     # pet_df含有潜在蒸散发
     pet_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_data/pet_calc/PET_result.CSV'), engine='c',
                          parse_dates=['time']).set_index('time')
     session_path = os.path.join(definitions.ROOT_DIR, 'example/sessions/')
+    calibrate_df_total = pd.DataFrame()
     for dir_name, sub_dir, files in os.walk(session_path):
         for file in files:
             # session_df 含有雨和洪
@@ -177,8 +179,15 @@ def test_calibrate_flow():
             session_pet = pet_df.loc[session_df.index].to_numpy().flatten()
             calibrate_df = pd.DataFrame({'PRCP': session_df['RAIN_SESSION'].to_numpy(), 'PET': session_pet,
                                          'streamflow': session_df['FLOW_SESSION_M3_S'].to_numpy()})
-            calibrate_np = calibrate_df.to_numpy()
-            # calibrate_by_ga(input=calibrate_np)
+            calibrate_df_total = pd.concat([calibrate_df_total, calibrate_df], axis=0)
+        calibrate_np = calibrate_df_total.to_numpy()
+        calibrate_np = np.expand_dims(calibrate_np, axis=0)
+        calibrate_np = np.swapaxes(calibrate_np, 0, 1)
+        observed_output = np.expand_dims(calibrate_np[:, :, -1], axis=0)
+        observed_output = np.swapaxes(observed_output, 0, 1)
+        pop = calibrate_by_ga(input_data=calibrate_np[:, :, 0:2], observed_output=observed_output, deap_dir=deap_dir, warmup_length=24)
+        print(pop)
+        return pop
 
 
 def get_voronoi():
