@@ -12,6 +12,7 @@ from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries
 from pandas import DataFrame
 from shapely import Point
 from xaj.calibrate_ga_xaj_bmi import calibrate_by_ga
+import xarray as xr
 
 import definitions
 
@@ -45,7 +46,7 @@ def voronoi_from_shp(src, des, data_dir='.'):
     wbt.voronoi_diagram(src, des, callback=my.my_callback)
 
 
-def get_rain_average():
+def intersect_rain_stations():
     pp_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/rain_stations.csv'), engine='c').drop(
         columns=['Unnamed: 0'])
     geo_list = []
@@ -62,14 +63,29 @@ def get_rain_average():
     gdf_rain_stations = gdf_rain_stations[~(gdf_rain_stations['STCD'] == '21422950')]
     gdf_rain_stations.to_file(
         os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'))
+    return gdf_rain_stations
+
+
+def get_voronoi():
+    origin_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域.shp')
+    dup_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域_副本.shp')
+    shutil.copyfile(origin_basin_shp, dup_basin_shp)
+    node_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp')
+    voronoi_from_shp(src=node_shp, des=dup_basin_shp)
+    voronoi_gdf = gpd.read_file(dup_basin_shp, engine='pyogrio')
+    return voronoi_gdf
+
+
+def get_rain_average():
     rain_path = os.path.join(definitions.ROOT_DIR, 'example/rain_datas/')
     series_dict = {}
     for root, dirs, files in os.walk(rain_path):
         for file in files:
             stcd = file.split('_')[0]
             rain_table = pd.read_csv(os.path.join(rain_path, file), engine='c', parse_dates=['TM'])
-            # 参差不齐，不能按照时间选择，先按照索引硬对
-            # drp_series = rain_table['DRP'].loc[(rain_table['TM'] > pd.to_datetime(start_date)) & (rain_table['TM'] < pd.to_datetime(end_date))].fillna(0).tolist()
+            # 参差不齐，不能直接按照时间选择，可能需要引入era5辅助指定时间
+            # drp_series = rain_table['DRP'].loc[(rain_table['TM'] > pd.to_datetime(start_date)) &
+            # (rain_table['TM'] < pd.to_datetime(end_date))].fillna(0).tolist()
             # 21422950站点不能用, 要移除
             drp_series = rain_table['DRP'][(rain_table.index >= 5000) & (rain_table.index <= 14130)].fillna(0).tolist()
             series_dict[stcd] = drp_series
@@ -165,6 +181,7 @@ def test_biliu_rain_flow_division():
 
 # need fusion with the last test
 def test_calibrate_flow():
+    # test_biliu_rain_flow_division()
     deap_dir = os.path.join(definitions.ROOT_DIR, 'example/deap_dir/')
     # pet_df含有潜在蒸散发
     pet_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_data/pet_calc/PET_result.CSV'), engine='c',
@@ -190,11 +207,22 @@ def test_calibrate_flow():
         return pop
 
 
-def get_voronoi():
-    origin_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域.shp')
-    dup_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域_副本.shp')
-    shutil.copyfile(origin_basin_shp, dup_basin_shp)
-    node_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp')
-    voronoi_from_shp(src=node_shp, des=dup_basin_shp)
-    voronoi_gdf = gpd.read_file(dup_basin_shp, engine='pyogrio')
-    return voronoi_gdf
+def test_localize_by_era():
+    era_path = os.path.join(definitions.ROOT_DIR, 'example/era5_xaj/')
+    gdf_rain_stations = intersect_rain_stations()
+    '''
+    total_era5_ds = xr.Dataset()
+    for dir_name, sub_dir, files in os.walk(era_path):
+        for file in files:
+            era5_file = os.path.join(era_path, file)
+            era5_ds = xr.open_dataset(era5_file)
+            total_era5_ds = xr.merge([total_era5_ds, era5_ds], compat='override')
+    total_era5_ds.to_netcdf(os.path.join(era_path, 'cache_total_era5.nc'))
+    '''
+    total_era5_ds = xr.open_dataset(os.path.join(era_path, 'cache_total_era5.nc'))
+    rain_coords = [(point.x, point.y) for point in gdf_rain_stations.geometry]
+    rain_round_coords = [(round(coord[0], 1), round(coord[1], 1)) for coord in rain_coords]
+    times = total_era5_ds.sel(longitude=rain_round_coords[0][0], latitude=rain_round_coords[0][1])
+    times_df = times.to_dataframe()
+
+
