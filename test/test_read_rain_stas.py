@@ -225,4 +225,3 @@ def test_localize_by_era():
     times = total_era5_ds.sel(longitude=rain_round_coords[0][0], latitude=rain_round_coords[0][1])
     times_df = times.to_dataframe()
 
-
