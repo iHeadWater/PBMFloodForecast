@@ -20,3 +20,4 @@ pyogrio
 cdsapi
 whitebox
 hydromodel-calibrate-base
+xgboost
