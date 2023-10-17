@@ -44,7 +44,8 @@ def test_dt_find_abnormal_otq():
     print(r2_era5, rmse_era5)
     biliu_flow_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_rsvr.csv'),
                                 engine='c', parse_dates=['TM'])
-    predict_range = (biliu_flow_df['TM'][~biliu_flow_df['OTQ'].isna()] - pd.to_datetime('2000-01-01 08:00:00'))/np.timedelta64(1, 'D')
+    predict_range = (biliu_flow_df['TM'][(~biliu_flow_df['OTQ'].isna()) & (biliu_flow_df['TM'] > pd.to_datetime('2018-01-01 00:00:00'))]
+                     - pd.to_datetime('2000-01-01 08:00:00'))/np.timedelta64(1, 'D')
     pred_y = dt_reg.predict(np.expand_dims(predict_range, 1))
     obs_y = biliu_flow_df['OTQ'][~biliu_flow_df['OTQ'].isna()].to_numpy()
     rmse_array = [math.sqrt(metrics.mean_squared_error(pred_y[i:i+10], obs_y[i:i+10])) for i in range(0, len(pred_y)-10)]
