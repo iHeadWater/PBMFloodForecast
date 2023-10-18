@@ -30,7 +30,7 @@ def test_dt_find_abnormal_otq():
             # sro在era5land数据中代表地表径流, 也是累积型数据
             month_rain = era_ds.sel(longitude=122.5, latitude=39.8)['sro']
             month_rain_daily = month_rain.loc[month_rain.time.dt.time == datetime.time(0, 0)]
-            rain_y = np.append(rain_y, month_rain_daily.to_numpy()*1.21e11/86400)
+            rain_y = np.append(rain_y, month_rain_daily.to_numpy()*1.21e8/86400)
     X_train, X_test, y_train, y_test = train_test_split(date_x, rain_y, test_size=0.3)
     dt_path = os.path.join(definitions.ROOT_DIR, 'example/dt_reg_test')
     if os.path.exists(dt_path):
@@ -49,12 +49,10 @@ def test_dt_find_abnormal_otq():
     pred_y = dt_reg.predict(np.expand_dims(predict_range, 1))
     obs_y = biliu_flow_df['OTQ'][~biliu_flow_df['OTQ'].isna()].to_numpy()
     rmse_array = [math.sqrt(metrics.mean_squared_error(pred_y[i:i+10], obs_y[i:i+10])) for i in range(0, len(pred_y)-10)]
-    '''
     plt.plot(rmse_array)
     plt.xlabel('slice')
     plt.ylabel('rmse')
     plt.show()
-    '''
     print(rmse_array)
     normal_rmse_array = np.argwhere(np.array(rmse_array) <= 15)
     print(normal_rmse_array)
