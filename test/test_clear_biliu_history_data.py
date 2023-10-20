@@ -47,4 +47,3 @@ def test_resample_biliu_data():
                 mean_series = prcp_df['paravalue'].resample('H').mean()
                 mean_df = pd.DataFrame({'paravalue': mean_series})
                 mean_df.to_csv(os.path.join(splited_hourly_path, file.split('.')[0]+'_hourly.csv'))
-
