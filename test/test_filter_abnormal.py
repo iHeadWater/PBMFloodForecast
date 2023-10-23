@@ -9,7 +9,7 @@ import definitions
 import geopandas as gpd
 
 sl_stas_table: GeoDataFrame = gpd.read_file(
-    os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'))
+    os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'), engine='pyogrio')
 biliu_stas_table = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu_history_data/st_stbprp_b.CSV'), encoding='gbk')
 
 
@@ -18,13 +18,19 @@ def test_filter_abnormal_sl_and_biliu():
     sl_biliu_stas_path = os.path.join(definitions.ROOT_DIR, 'example/rain_datas')
     # 碧流河历史数据中，128、138、139、158号站点数据和era5数据出现较大偏差，舍去
     # 松辽委历史数据中，2022年站点数据和era5偏差较大，可能是4、5、9、10月缺测导致
+    time_df_dict_biliu_his = test_filter_data_by_time(biliu_his_stas_path, filter_station_list=[128, 138, 139, 158])
+    time_df_dict_sl_biliu = test_filter_data_by_time(sl_biliu_stas_path)
+    time_df_dict_sl_biliu.update(time_df_dict_biliu_his)
+    space_df_dict = test_filter_data_by_space(time_df_dict_sl_biliu)
+    for key in space_df_dict.keys():
+        space_df_dict[key].to_csv(os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_between_sl_biliu', key+'_filtered.csv'))
 
 
-def test_filter_data_by_time(data_path, filter_station_list):
+def test_filter_data_by_time(data_path, filter_station_list=None):
     time_df_dict = {}
     for dir_name, sub_dir, files in os.walk(data_path):
         for file in files:
-            if file.split('_')[0] not in filter_station_list:
+            if int(file.split('_')[0]) not in filter_station_list:
                 drop_list = []
                 csv_path = os.path.join(data_path, file)
                 table = pd.read_csv(csv_path, engine='c')
@@ -40,8 +46,9 @@ def test_filter_data_by_time(data_path, filter_station_list):
                         if i >= 5:
                             hour_slice = table['DRP'][i - 5:i + 1].to_numpy()
                             if hour_slice.all() == np.mean(hour_slice):
-                                drop_list.append(range(i - 5, i + 1))
-                    table.drop(index=drop_list)
+                                drop_list.extend(list(range(i - 5, i + 1)))
+                    drop_array = np.unique(np.array(drop_list, dtype=int))
+                    table.drop(index=drop_array)
                 if 'paravalue' in table.columns:
                     for i in range(0, len(table['paravalue'])):
                         if table['paravalue'][i] > 200:
@@ -49,15 +56,17 @@ def test_filter_data_by_time(data_path, filter_station_list):
                         if i >= 5:
                             hour_slice = table['paravalue'][i - 5:i + 1].to_numpy()
                             if hour_slice.all() == np.mean(hour_slice):
-                                drop_list.append(range(i - 5, i + 1))
-                    table.drop(index=drop_list)
+                                drop_list.extend(list(range(i - 5, i + 1)))
+                    drop_array = np.unique(np.array(drop_list, dtype=int))
+                    table.drop(index=drop_array)
                 time_df_dict[file.split('_')[0]] = table
     return time_df_dict
 
 
 def test_filter_data_by_space(time_df_dict):
-    neighbor_stas_dict = get_find_neighbor_dict(sl_stas_table, biliu_stas_table)[0]
-    gdf_stid_total = get_find_neighbor_dict(sl_stas_table, biliu_stas_table)[1]
+    neighbor_stas_dict = find_neighbor_dict(sl_stas_table, biliu_stas_table)[0]
+    gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table)[1]
+    space_df_dict = {}
     for key in time_df_dict:
         time_drop_list = []
         neighbor_stas = neighbor_stas_dict[key]
@@ -67,8 +76,15 @@ def test_filter_data_by_space(time_df_dict):
                 weight_rain = 0
                 weight_dis = 0
                 for sta in neighbor_stas:
-                    weight_rain += table['DRP'][time] / (gdf_stid_total['distance'][gdf_stid_total['STCD'] == sta] ** 2)
-                    weight_dis += 1 / (gdf_stid_total['distance'][gdf_stid_total['STCD'] == sta] ** 2)
+                    point = gdf_stid_total.geometry[gdf_stid_total['STCD'] == sta]
+                    point_self = gdf_stid_total.geometry[gdf_stid_total['STCD'] == key]
+                    dis = distance(point, point_self)
+                    if 'DRP' in table.columns:
+                        weight_rain += table['DRP'][time] / (dis ** 2)
+                        weight_dis += 1 / (dis ** 2)
+                    if 'paravalue' in table.columns:
+                        weight_rain += table['paravalue'][time] / (dis ** 2)
+                        weight_dis += 1 / (dis ** 2)
                 interp_rain = weight_rain / weight_dis
                 if abs(interp_rain - table['DRP'][time]) > 4:
                     time_drop_list.append(time)
@@ -76,11 +92,24 @@ def test_filter_data_by_space(time_df_dict):
             for time in table.index:
                 rain_time_list = []
                 for neighbor in neighbor_stas_dict.keys():
-                    rain_time_list.append(time_df_dict[neighbor])
-        # Uncompleted
+                    # 碧流河和松辽委表结构不同，需要再改
+                    if 'DRP' in table.columns:
+                        rain_time_list.append((time_df_dict[neighbor])['DRP'][time])
+                    if 'paravalue' in table.columns:
+                        rain_time_list.append((time_df_dict[neighbor])['paravalue'][time])
+                rain_time_series = pd.Series(rain_time_list)
+                quantile_25 = rain_time_series.quantile(q=0.25)
+                quantile_75 = rain_time_series.quantile(q=0.75)
+                average = rain_time_series.mean()
+                MA_Tct = (table['DRP'][time] - average) / (quantile_75 - quantile_25)
+                if MA_Tct > 4:
+                    time_drop_list.append(time)
+        table = table.drop(index=time_drop_list)
+        space_df_dict[key] = table
+    return space_df_dict
 
 
-def get_find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df):
+def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df):
     biliu_stbprp_df = biliu_stbprp_df[biliu_stbprp_df['sttp'] == 2].reset_index().drop(columns=['index'])
     point_list = []
     for i in range(0, len(biliu_stbprp_df)):
@@ -102,4 +131,3 @@ def get_find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df):
         neighbor_dict[stcd] = nearest_stas_list
     gdf_stid_total = gdf_stid_total.drop(columns=['distance'])
     return neighbor_dict, gdf_stid_total
-
