@@ -19,11 +19,11 @@ def test_filter_abnormal_sl_and_biliu():
     sl_biliu_stas_path = os.path.join(definitions.ROOT_DIR, 'example/rain_datas')
     # 碧流河历史数据中，128、138、139、158号站点数据和era5数据出现较大偏差，舍去
     # 松辽委历史数据中，2022年站点数据和era5偏差较大，可能是4、5、9、10月缺测导致
-    time_df_dict_biliu_his = test_filter_data_by_time(biliu_his_stas_path,
-                                                      filter_station_list=[128, 132, 138, 139, 149, 150, 151, 156, 158])
+    filter_station_list = [128, 138, 139, 158]
+    time_df_dict_biliu_his = test_filter_data_by_time(biliu_his_stas_path, filter_station_list)
     time_df_dict_sl_biliu = test_filter_data_by_time(sl_biliu_stas_path)
     time_df_dict_sl_biliu.update(time_df_dict_biliu_his)
-    space_df_dict = test_filter_data_by_space(time_df_dict_sl_biliu)
+    space_df_dict = test_filter_data_by_space(time_df_dict_sl_biliu, filter_station_list)
     for key in space_df_dict.keys():
         space_df_dict[key].to_csv(
             os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_between_sl_biliu', key + '_filtered.csv'))
@@ -85,60 +85,68 @@ def test_filter_data_by_time(data_path, filter_station_list=None):
     return time_df_dict
 
 
-def test_filter_data_by_space(time_df_dict):
-    neighbor_stas_dict = find_neighbor_dict(sl_stas_table, biliu_stas_table)[0]
-    gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table)[1]
+def test_filter_data_by_space(time_df_dict, filter_station_list):
+    neighbor_stas_dict = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_station_list)[0]
+    gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_station_list)[1]
     space_df_dict = {}
     for key in time_df_dict:
         time_drop_list = []
         neighbor_stas = neighbor_stas_dict[key]
         table = time_df_dict[key]
-        if len(neighbor_stas) < 12:
-            if 'DRP' in table.columns:
-                table = table.set_index('TM')
-            if 'paravalue' in table.columns:
-                table = table.set_index('systemtime')
-            for time in table.index:
-                weight_rain = 0
-                weight_dis = 0
-                for sta in neighbor_stas:
-                    point = gdf_stid_total.geometry[gdf_stid_total['STCD'] == sta].values[0]
-                    point_self = gdf_stid_total.geometry[gdf_stid_total['STCD'] == key].values[0]
-                    dis = distance(point, point_self)
+        if 'DRP' in table.columns:
+            table = table.set_index('TM')
+        if 'paravalue' in table.columns:
+            table = table.set_index('systemtime')
+        for time in table.index:
+            rain_time_dict = {}
+            for neighbor in neighbor_stas:
+                neighbor_df = time_df_dict[str(neighbor)]
+                if 'DRP' in neighbor_df.columns:
+                    neighbor_df = neighbor_df.set_index('TM')
+                    if time in neighbor_df.index:
+                        rain_time_dict[str(neighbor)] = neighbor_df['DRP'][time]
+                if 'paravalue' in neighbor_df.columns:
+                    neighbor_df = neighbor_df.set_index('systemtime')
+                    if time in neighbor_df.index:
+                        rain_time_dict[str(neighbor)] = neighbor_df['paravalue'][time]
+                if len(rain_time_dict) == 0:
+                    continue
+                elif 0 < len(rain_time_dict) < 12:
+                    weight_rain = 0
+                    weight_dis = 0
+                    for sta in rain_time_dict.keys():
+                        point = gdf_stid_total.geometry[gdf_stid_total['STCD'] == str(sta)].values[0]
+                        point_self = gdf_stid_total.geometry[gdf_stid_total['STCD'] == str(key)].values[0]
+                        dis = distance(point, point_self)
+                        if 'DRP' in table.columns:
+                            weight_rain += table['DRP'][time] / (dis ** 2)
+                            weight_dis += 1 / (dis ** 2)
+                        elif 'paravalue' in table.columns:
+                            weight_rain += table['paravalue'][time] / (dis ** 2)
+                            weight_dis += 1 / (dis ** 2)
+                    interp_rain = weight_rain / weight_dis
+                    if abs(interp_rain - table['DRP'][time]) > 4:
+                        time_drop_list.append(time)
+                    table = table.drop(index=time_drop_list)
+                elif len(rain_time_dict) >= 12:
+                    rain_time_series = pd.Series(rain_time_dict.values())
+                    quantile_25 = rain_time_series.quantile(q=0.25)
+                    quantile_75 = rain_time_series.quantile(q=0.75)
+                    average = rain_time_series.mean()
                     if 'DRP' in table.columns:
-                        # 疑似因为不同表格时间索引不同导致崩溃
-                        weight_rain += table['DRP'][time] / (dis ** 2)
-                        weight_dis += 1 / (dis ** 2)
-                    if 'paravalue' in table.columns:
-                        weight_rain += table['paravalue'][time] / (dis ** 2)
-                        weight_dis += 1 / (dis ** 2)
-                interp_rain = weight_rain / weight_dis
-                if abs(interp_rain - table['DRP'][time]) > 4:
-                    time_drop_list.append(time)
-            table = table.drop(index=time_drop_list)
-        else:
-            for time in table.index:
-                rain_time_list = []
-                for neighbor in neighbor_stas_dict.keys():
-                    neighbor_df = time_df_dict[str(neighbor)]
-                    if 'DRP' in neighbor_df.columns:
-                        rain_time_list.append(neighbor_df['DRP'][time])
-                    if 'paravalue' in neighbor_df.columns:
-                        rain_time_list.append(neighbor_df['paravalue'][time])
-                rain_time_series = pd.Series(rain_time_list)
-                quantile_25 = rain_time_series.quantile(q=0.25)
-                quantile_75 = rain_time_series.quantile(q=0.75)
-                average = rain_time_series.mean()
-                MA_Tct = (table['DRP'][time] - average) / (quantile_75 - quantile_25)
-                if MA_Tct > 4:
-                    time_drop_list.append(time)
-            table = table.drop(index=time_drop_list)
+                        MA_Tct = (table['DRP'][time] - average) / (quantile_75 - quantile_25)
+                        if MA_Tct > 4:
+                            time_drop_list.append(time)
+                    elif 'paravalue' in table.columns:
+                        MA_Tct = (table['paravalue'][time] - average) / (quantile_75 - quantile_25)
+                        if MA_Tct > 4:
+                            time_drop_list.append(time)
+                    table = table.drop(index=time_drop_list)
         space_df_dict[key] = table
     return space_df_dict
 
 
-def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df):
-    # filter_station_list=[128, 132, 138, 139, 149, 150, 151, 156, 158]
+def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df, filter_station_list):
     biliu_stbprp_df = biliu_stbprp_df[biliu_stbprp_df['sttp'] == 2].reset_index().drop(columns=['index'])
     point_list = []
     for i in range(0, len(biliu_stbprp_df)):
@@ -149,8 +157,9 @@ def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df):
     gdf_biliu = GeoDataFrame({'STCD': biliu_stbprp_df['stid'], 'STNM': biliu_stbprp_df['stname']}, geometry=point_list)
     sl_biliu_gdf_splited = sl_biliu_gdf[['STCD', 'STNM', 'geometry']]
     # 需要筛选雨量
-    gdf_stid_total = GeoDataFrame(pd.concat([gdf_biliu, sl_biliu_gdf_splited], axis=0)).reset_index().drop(
-        columns=['index'])
+    gdf_stid_total = GeoDataFrame(pd.concat([gdf_biliu, sl_biliu_gdf_splited], axis=0))
+    gdf_stid_total = gdf_stid_total.set_index('STCD').drop(index=filter_station_list).reset_index()
+    gdf_stid_total['STCD'] = gdf_stid_total['STCD'].astype('str')
     neighbor_dict = {}
     for i in range(0, len(gdf_stid_total.geometry)):
         stcd = gdf_stid_total['STCD'][i]
