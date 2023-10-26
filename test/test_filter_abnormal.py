@@ -37,8 +37,9 @@ def test_filter_data_by_time(data_path, filter_station_list=None):
     for dir_name, sub_dir, files in os.walk(data_path):
         for file in files:
             stcd = file.split('_')[0]
+            feature = file.split('_')[1]
             cached_csv_path = os.path.join(test_filtered_by_time_path, stcd + '.csv')
-            if (int(stcd) not in filter_station_list) & (~os.path.exists(cached_csv_path)):
+            if (int(stcd) not in filter_station_list) & (~os.path.exists(cached_csv_path)) & (feature != '水位'):
                 drop_list = []
                 csv_path = os.path.join(data_path, file)
                 table = pd.read_csv(csv_path, engine='c')
@@ -79,7 +80,7 @@ def test_filter_data_by_time(data_path, filter_station_list=None):
                     table = table.drop(index=drop_array)
                 time_df_dict[stcd] = table
                 table.to_csv(cached_csv_path)
-            elif (int(stcd) not in filter_station_list) & (os.path.exists(cached_csv_path)):
+            elif (int(stcd) not in filter_station_list) & (os.path.exists(cached_csv_path)) & (feature != '水位'):
                 table = pd.read_csv(cached_csv_path, engine='c')
                 time_df_dict[stcd] = table
     return time_df_dict
@@ -109,39 +110,42 @@ def test_filter_data_by_space(time_df_dict, filter_station_list):
                     neighbor_df = neighbor_df.set_index('systemtime')
                     if time in neighbor_df.index:
                         rain_time_dict[str(neighbor)] = neighbor_df['paravalue'][time]
-                if len(rain_time_dict) == 0:
-                    continue
-                elif 0 < len(rain_time_dict) < 12:
-                    weight_rain = 0
-                    weight_dis = 0
-                    for sta in rain_time_dict.keys():
-                        point = gdf_stid_total.geometry[gdf_stid_total['STCD'] == str(sta)].values[0]
-                        point_self = gdf_stid_total.geometry[gdf_stid_total['STCD'] == str(key)].values[0]
-                        dis = distance(point, point_self)
-                        if 'DRP' in table.columns:
-                            weight_rain += table['DRP'][time] / (dis ** 2)
-                            weight_dis += 1 / (dis ** 2)
-                        elif 'paravalue' in table.columns:
-                            weight_rain += table['paravalue'][time] / (dis ** 2)
-                            weight_dis += 1 / (dis ** 2)
-                    interp_rain = weight_rain / weight_dis
+            if len(rain_time_dict) == 0:
+                continue
+            elif 0 < len(rain_time_dict) < 12:
+                weight_rain = 0
+                weight_dis = 0
+                for sta in rain_time_dict.keys():
+                    point = gdf_stid_total.geometry[gdf_stid_total['STCD'] == str(sta)].values[0]
+                    point_self = gdf_stid_total.geometry[gdf_stid_total['STCD'] == str(key)].values[0]
+                    dis = distance(point, point_self)
+                    if 'DRP' in table.columns:
+                        weight_rain += table['DRP'][time] / (dis ** 2)
+                        weight_dis += 1 / (dis ** 2)
+                    elif 'paravalue' in table.columns:
+                        weight_rain += table['paravalue'][time] / (dis ** 2)
+                        weight_dis += 1 / (dis ** 2)
+                interp_rain = weight_rain / weight_dis
+                if 'DRP' in table.columns:
                     if abs(interp_rain - table['DRP'][time]) > 4:
                         time_drop_list.append(time)
-                    table = table.drop(index=time_drop_list)
-                elif len(rain_time_dict) >= 12:
-                    rain_time_series = pd.Series(rain_time_dict.values())
-                    quantile_25 = rain_time_series.quantile(q=0.25)
-                    quantile_75 = rain_time_series.quantile(q=0.75)
-                    average = rain_time_series.mean()
-                    if 'DRP' in table.columns:
-                        MA_Tct = (table['DRP'][time] - average) / (quantile_75 - quantile_25)
-                        if MA_Tct > 4:
-                            time_drop_list.append(time)
-                    elif 'paravalue' in table.columns:
-                        MA_Tct = (table['paravalue'][time] - average) / (quantile_75 - quantile_25)
-                        if MA_Tct > 4:
-                            time_drop_list.append(time)
-                    table = table.drop(index=time_drop_list)
+                elif 'paravalue' in table.columns:
+                    if abs(interp_rain - table['paravalue'][time]) > 4:
+                        time_drop_list.append(time)
+            elif len(rain_time_dict) >= 12:
+                rain_time_series = pd.Series(rain_time_dict.values())
+                quantile_25 = rain_time_series.quantile(q=0.25)
+                quantile_75 = rain_time_series.quantile(q=0.75)
+                average = rain_time_series.mean()
+                if 'DRP' in table.columns:
+                    MA_Tct = (table['DRP'][time] - average) / (quantile_75 - quantile_25)
+                    if MA_Tct > 4:
+                        time_drop_list.append(time)
+                elif 'paravalue' in table.columns:
+                    MA_Tct = (table['paravalue'][time] - average) / (quantile_75 - quantile_25)
+                    if MA_Tct > 4:
+                        time_drop_list.append(time)
+        table = table.drop(index=time_drop_list).drop(columns=['Unnamed: 0'])
         space_df_dict[key] = table
     return space_df_dict
 
