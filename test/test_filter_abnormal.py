@@ -1,4 +1,5 @@
 import os
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -8,10 +9,14 @@ from shapely import distance, Point
 import definitions
 import geopandas as gpd
 
+from test.test_read_rain_stas import voronoi_from_shp
+
 sl_stas_table: GeoDataFrame = gpd.read_file(
     os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'), engine='pyogrio')
 biliu_stas_table = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu_history_data/st_stbprp_b.CSV'),
                                encoding='gbk')
+gdf_biliu_shp: GeoDataFrame = gpd.read_file(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp'
+                                                                               '/碧流河流域.shp'), engine='pyogrio')
 
 
 def test_filter_abnormal_sl_and_biliu():
@@ -174,3 +179,47 @@ def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df, filter_station_list):
         neighbor_dict[stcd] = nearest_stas_list
     gdf_stid_total = gdf_stid_total.drop(columns=['distance'])
     return neighbor_dict, gdf_stid_total
+
+
+def get_voronoi_total():
+    node_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp')
+    dup_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域_副本.shp')
+    origin_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域.shp')
+    if not os.path.exists(node_shp):
+        shutil.copyfile(origin_basin_shp, dup_basin_shp)
+        gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_station_list=[128, 138, 139, 158])[1]
+        gdf_stid_total.to_file(node_shp)
+    voronoi_from_shp(src=node_shp, des=dup_basin_shp)
+    voronoi_gdf = gpd.read_file(dup_basin_shp, engine='pyogrio')
+    return voronoi_gdf
+
+
+def get_rain_average_filtered(start_date, end_date):
+    voronoi_gdf = get_voronoi_total()
+    voronoi_gdf['real_area'] = voronoi_gdf.apply(lambda x: x.geometry.area*12100)
+    rain_path = os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_between_sl_biliu')
+    abs_paths = []
+    for root, dirs, files in os.walk(rain_path):
+        for file in files:
+            abs_paths.append(os.path.join(rain_path, file))
+    # 参差不齐，不能直接按照长时间序列选择，只能一个个时间索引去找，看哪个站有数据，再做平均
+    rain_aver_list = []
+    for time in pd.date_range(start_date, end_date, freq='H'):
+        time_rain_records = {}
+        for abs_path in abs_paths:
+            stcd = abs_path.split('_')[0]
+            rain_table = pd.read_csv(abs_path, engine='c', parse_dates=['TM'])
+            if ('DRP' in rain_table.columns) & (time in rain_table['TM']):
+                drp = rain_table['DRP'][rain_table['TM'] == time]
+                time_rain_records.append(drp)
+            elif ('paravalue' in rain_table.columns) & (time in rain_table['systemtime']):
+                drp = rain_table['paravalue'][rain_table['systemtime'] == time]
+                time_rain_records.append(drp)
+            else:
+                continue
+            time_rain_records[stcd] = drp
+        rain_aver = 0
+        for stcd in time_rain_records.keys():
+            rain_aver += time_rain_records[stcd] * voronoi_gdf['real_area'][stcd] / gdf_biliu_shp['area'][0]
+        rain_aver_list.append(rain_aver)
+    return rain_aver_list
