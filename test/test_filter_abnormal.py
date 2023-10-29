@@ -182,7 +182,7 @@ def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df, filter_station_list):
 
 
 def get_voronoi_total():
-    node_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp')
+    node_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas_total.shp')
     dup_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域_副本.shp')
     origin_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域.shp')
     if not os.path.exists(node_shp):
@@ -194,32 +194,44 @@ def get_voronoi_total():
     return voronoi_gdf
 
 
-def get_rain_average_filtered(start_date, end_date):
+def test_rain_average_filtered(start_date='2014-01-01 00:00:00', end_date='2022-09-01 00:00:00'):
+    start_date = pd.to_datetime(start_date, format='%Y-%m-%d %H:%M:%S')
+    end_date = pd.to_datetime(end_date, format='%Y-%m-%d %H:%M:%S')
     voronoi_gdf = get_voronoi_total()
-    voronoi_gdf['real_area'] = voronoi_gdf.apply(lambda x: x.geometry.area*12100)
+    voronoi_gdf['real_area'] = voronoi_gdf.apply(lambda x: x.geometry.area*12100, axis=1)
     rain_path = os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_between_sl_biliu')
     abs_paths = []
     for root, dirs, files in os.walk(rain_path):
         for file in files:
             abs_paths.append(os.path.join(rain_path, file))
     # 参差不齐，不能直接按照长时间序列选择，只能一个个时间索引去找，看哪个站有数据，再做平均
-    rain_aver_list = []
+    rain_aver_dict = {}
     for time in pd.date_range(start_date, end_date, freq='H'):
         time_rain_records = {}
         for abs_path in abs_paths:
             stcd = abs_path.split('_')[0]
-            rain_table = pd.read_csv(abs_path, engine='c', parse_dates=['TM'])
-            if ('DRP' in rain_table.columns) & (time in rain_table['TM']):
-                drp = rain_table['DRP'][rain_table['TM'] == time]
-                time_rain_records.append(drp)
-            elif ('paravalue' in rain_table.columns) & (time in rain_table['systemtime']):
-                drp = rain_table['paravalue'][rain_table['systemtime'] == time]
-                time_rain_records.append(drp)
+            rain_table = pd.read_csv(abs_path, engine='c')
+            if ('DRP' in rain_table.columns) & ('TM' in rain_table.columns):
+                if time in rain_table['TM']:
+                    rain_table['TM'] = pd.to_datetime(rain_table['TM'])
+                    drp = rain_table['DRP'][rain_table['TM'] == time]
+                    time_rain_records[stcd] = drp
+                else:
+                    continue
+            elif ('paravalue' in rain_table.columns) & ('systemtime' in rain_table.columns):
+                if time in rain_table['systemtime']:
+                    rain_table['systemtime'] = pd.to_datetime(rain_table['systemtime'])
+                    drp = rain_table['paravalue'][rain_table['systemtime'] == time]
+                    time_rain_records[stcd] = drp
+                else:
+                    continue
             else:
                 continue
             time_rain_records[stcd] = drp
         rain_aver = 0
         for stcd in time_rain_records.keys():
             rain_aver += time_rain_records[stcd] * voronoi_gdf['real_area'][stcd] / gdf_biliu_shp['area'][0]
-        rain_aver_list.append(rain_aver)
-    return rain_aver_list
+        rain_aver_dict[time] = rain_aver
+    rain_aver_df = pd.DataFrame(rain_aver_dict)
+    rain_aver_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_average.csv'))
+    return rain_aver_dict
