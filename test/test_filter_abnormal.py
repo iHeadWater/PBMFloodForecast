@@ -15,16 +15,17 @@ sl_stas_table: GeoDataFrame = gpd.read_file(
     os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'), engine='pyogrio')
 biliu_stas_table = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu_history_data/st_stbprp_b.CSV'),
                                encoding='gbk')
-gdf_biliu_shp: GeoDataFrame = gpd.read_file(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp'
-                                                                               '/碧流河流域.shp'), engine='pyogrio')
+gdf_biliu_shp: GeoDataFrame = gpd.read_file(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域.shp'), engine='pyogrio')
+# 碧流河历史数据中，128、138、139、158号站点数据和era5数据出现较大偏差，舍去
+# 松辽委历史数据中，2022年站点数据和era5偏差较大，可能是4、5、9、10月缺测导致
+# 碧流河历史数据中，126、127、129、130、133、141、142、154出现过万极值，需要另行考虑或直接剔除
+# 134、137、143、144出现千级极值，需要再筛选
+filter_station_list = [128, 138, 139, 158]
 
 
 def test_filter_abnormal_sl_and_biliu():
     biliu_his_stas_path = os.path.join(definitions.ROOT_DIR, 'example/biliu_history_data/history_data_splited_hourly')
     sl_biliu_stas_path = os.path.join(definitions.ROOT_DIR, 'example/rain_datas')
-    # 碧流河历史数据中，128、138、139、158号站点数据和era5数据出现较大偏差，舍去
-    # 松辽委历史数据中，2022年站点数据和era5偏差较大，可能是4、5、9、10月缺测导致
-    filter_station_list = [128, 138, 139, 158]
     time_df_dict_biliu_his = test_filter_data_by_time(biliu_his_stas_path, filter_station_list)
     time_df_dict_sl_biliu = test_filter_data_by_time(sl_biliu_stas_path)
     time_df_dict_sl_biliu.update(time_df_dict_biliu_his)
@@ -34,9 +35,9 @@ def test_filter_abnormal_sl_and_biliu():
             os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_between_sl_biliu', key + '_filtered.csv'))
 
 
-def test_filter_data_by_time(data_path, filter_station_list=None):
-    if filter_station_list is None:
-        filter_station_list = []
+def test_filter_data_by_time(data_path, filter_list=None):
+    if filter_list is None:
+        filter_list = []
     time_df_dict = {}
     test_filtered_by_time_path = os.path.join(definitions.ROOT_DIR, 'example/filtered_data_by_time')
     for dir_name, sub_dir, files in os.walk(data_path):
@@ -44,7 +45,7 @@ def test_filter_data_by_time(data_path, filter_station_list=None):
             stcd = file.split('_')[0]
             feature = file.split('_')[1]
             cached_csv_path = os.path.join(test_filtered_by_time_path, stcd + '.csv')
-            if (int(stcd) not in filter_station_list) & (~os.path.exists(cached_csv_path)) & (feature != '水位'):
+            if (int(stcd) not in filter_list) & (~os.path.exists(cached_csv_path)) & (feature != '水位'):
                 drop_list = []
                 csv_path = os.path.join(data_path, file)
                 table = pd.read_csv(csv_path, engine='c')
@@ -85,15 +86,15 @@ def test_filter_data_by_time(data_path, filter_station_list=None):
                     table = table.drop(index=drop_array)
                 time_df_dict[stcd] = table
                 table.to_csv(cached_csv_path)
-            elif (int(stcd) not in filter_station_list) & (os.path.exists(cached_csv_path)) & (feature != '水位'):
+            elif (int(stcd) not in filter_list) & (os.path.exists(cached_csv_path)) & (feature != '水位'):
                 table = pd.read_csv(cached_csv_path, engine='c')
                 time_df_dict[stcd] = table
     return time_df_dict
 
 
-def test_filter_data_by_space(time_df_dict, filter_station_list):
-    neighbor_stas_dict = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_station_list)[0]
-    gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_station_list)[1]
+def test_filter_data_by_space(time_df_dict, filter_list):
+    neighbor_stas_dict = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_list)[0]
+    gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_list)[1]
     space_df_dict = {}
     for key in time_df_dict:
         time_drop_list = []
@@ -155,7 +156,7 @@ def test_filter_data_by_space(time_df_dict, filter_station_list):
     return space_df_dict
 
 
-def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df, filter_station_list):
+def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df, filter_list):
     biliu_stbprp_df = biliu_stbprp_df[biliu_stbprp_df['sttp'] == 2].reset_index().drop(columns=['index'])
     point_list = []
     for i in range(0, len(biliu_stbprp_df)):
@@ -167,7 +168,7 @@ def find_neighbor_dict(sl_biliu_gdf, biliu_stbprp_df, filter_station_list):
     sl_biliu_gdf_splited = sl_biliu_gdf[['STCD', 'STNM', 'geometry']]
     # 需要筛选雨量
     gdf_stid_total = GeoDataFrame(pd.concat([gdf_biliu, sl_biliu_gdf_splited], axis=0))
-    gdf_stid_total = gdf_stid_total.set_index('STCD').drop(index=filter_station_list).reset_index()
+    gdf_stid_total = gdf_stid_total.set_index('STCD').drop(index=filter_list).reset_index()
     gdf_stid_total['STCD'] = gdf_stid_total['STCD'].astype('str')
     neighbor_dict = {}
     for i in range(0, len(gdf_stid_total.geometry)):
@@ -187,7 +188,7 @@ def get_voronoi_total():
     origin_basin_shp = os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/碧流河流域.shp')
     if not os.path.exists(node_shp):
         shutil.copyfile(origin_basin_shp, dup_basin_shp)
-        gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_station_list=[128, 138, 139, 158])[1]
+        gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_list=filter_station_list)[1]
         gdf_stid_total.to_file(node_shp)
     voronoi_from_shp(src=node_shp, des=dup_basin_shp)
     voronoi_gdf = gpd.read_file(dup_basin_shp, engine='pyogrio')
