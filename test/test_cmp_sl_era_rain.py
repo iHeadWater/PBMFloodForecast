@@ -32,7 +32,7 @@ def test_compare_era5_biliu_yr():
     diff_np = np.round((era5_np - sl_np)/sl_np, 3)
     diff_df = pd.DataFrame(data=diff_np, index=sl_df.index, columns=np.arange(2018, 2023, 1))
     sl_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/sl.csv'))
-    era5_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/era5.csv'))
+    era5_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_sl.csv'))
     diff_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_sl_diff.csv'))
 
 
@@ -66,7 +66,7 @@ def test_cmp_biliu_era_rain():
     diff_np = np.round((era5_np - biliu_np)/biliu_np, 3)
     diff_df = pd.DataFrame(data=diff_np, index=biliu_df.index, columns=np.arange(2018, 2023, 1))
     biliu_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu.csv'))
-    era5_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/era5.csv'))
+    era5_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_biliu.csv'))
     diff_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_biliu_diff.csv'))
 
 

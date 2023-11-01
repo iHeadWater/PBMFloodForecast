@@ -1,3 +1,4 @@
+import math
 import os
 import shutil
 
@@ -21,6 +22,46 @@ gdf_biliu_shp: GeoDataFrame = gpd.read_file(os.path.join(definitions.ROOT_DIR, '
 # 碧流河历史数据中，126、127、129、130、133、141、142、154出现过万极值，需要另行考虑或直接剔除
 # 134、137、143、144出现千级极值，需要再筛选
 filter_station_list = [128, 138, 139, 158]
+
+
+def test_calc_filter_station_list():
+    # 可以和之前比较的方法接起来而不是读csv
+    era5_sl_diff_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_sl_diff.csv')).rename(columns={'Unnamed: 0': 'STCD'})
+    era5_biliu_diff_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_biliu_diff.csv')).rename(columns={'Unnamed: 0': 'STCD'})
+    biliu_hourly_splited_path = os.path.join(definitions.ROOT_DIR, 'example/biliu_history_data/history_data_splited_hourly')
+    sl_hourly_path = os.path.join(definitions.ROOT_DIR, 'example/rain_datas')
+    filter_station_list = []
+    for i in range(0, len(era5_biliu_diff_df)):
+        if np.inf in era5_biliu_diff_df.iloc[i].to_numpy():
+            filter_station_list.append(era5_biliu_diff_df['STCD'][i])
+    for i in range(0, len(era5_sl_diff_df)):
+        if np.inf in era5_sl_diff_df.iloc[i].to_numpy():
+            filter_station_list.append(era5_sl_diff_df['STCD'][i])
+    for dir_name, sub_dirs, files in os.walk(biliu_hourly_splited_path):
+        for file in files:
+            stcd = file.split('_')[0]
+            csv_path = os.path.join(biliu_hourly_splited_path, file)
+            biliu_df = pd.read_csv(csv_path, engine='c')
+            if int(stcd) not in filter_station_list:
+                para_std = biliu_df['paravalue'].std()
+                para_aver = biliu_df['paravalue'].mean()
+                vari_corr = para_std/para_aver
+                if vari_corr > 1:
+                    filter_station_list.append(int(stcd))
+    for dir_name, sub_dirs, files in os.walk(sl_hourly_path):
+        for file in files:
+            stcd = file.split('_')[0]
+            csv_path = os.path.join(sl_hourly_path, file)
+            sl_df = pd.read_csv(csv_path, engine='c')
+            if int(stcd) not in filter_station_list:
+                para_std = sl_df['DRP'].std()
+                para_aver = sl_df['DRP'].mean()
+                vari_corr = para_std/para_aver
+                # 变异系数不应该>1
+                if vari_corr > 1:
+                    filter_station_list.append(int(stcd))
+    print(filter_station_list)
+    return filter_station_list
 
 
 def test_filter_abnormal_sl_and_biliu():
