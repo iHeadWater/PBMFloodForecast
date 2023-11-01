@@ -29,7 +29,10 @@ def test_calc_filter_station_list():
     era5_sl_diff_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_sl_diff.csv')).rename(columns={'Unnamed: 0': 'STCD'})
     era5_biliu_diff_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_biliu_diff.csv')).rename(columns={'Unnamed: 0': 'STCD'})
     biliu_hourly_splited_path = os.path.join(definitions.ROOT_DIR, 'example/biliu_history_data/history_data_splited_hourly')
+    biliu_hourly_filtered_path = os.path.join(definitions.ROOT_DIR, 'example/filtered_data_by_time')
     sl_hourly_path = os.path.join(definitions.ROOT_DIR, 'example/rain_datas')
+    station_vari_dict = {}
+    station_vari_dict_by_time = {}
     filter_station_list = []
     for i in range(0, len(era5_biliu_diff_df)):
         if np.inf in era5_biliu_diff_df.iloc[i].to_numpy():
@@ -46,8 +49,11 @@ def test_calc_filter_station_list():
                 para_std = biliu_df['paravalue'].std()
                 para_aver = biliu_df['paravalue'].mean()
                 vari_corr = para_std/para_aver
-                if vari_corr > 1:
+                station_vari_dict[stcd] = vari_corr
+                '''
+                if vari_corr > 2:
                     filter_station_list.append(int(stcd))
+                '''
     for dir_name, sub_dirs, files in os.walk(sl_hourly_path):
         for file in files:
             stcd = file.split('_')[0]
@@ -57,10 +63,34 @@ def test_calc_filter_station_list():
                 para_std = sl_df['DRP'].std()
                 para_aver = sl_df['DRP'].mean()
                 vari_corr = para_std/para_aver
-                # 变异系数不应该>1
-                if vari_corr > 1:
+                station_vari_dict[stcd] = vari_corr
+                '''
+                if vari_corr > 2:
                     filter_station_list.append(int(stcd))
+                    '''
+    for dir_name, sub_dirs, files in os.walk(biliu_hourly_filtered_path):
+        for file in files:
+            stcd = file.split('.')[0]
+            csv_path = os.path.join(biliu_hourly_filtered_path, file)
+            data_df = pd.read_csv(csv_path, engine='c')
+            if int(stcd) not in filter_station_list:
+                if 'DRP' in data_df.columns:
+                    para_std = data_df['DRP'].std()
+                    para_aver = data_df['DRP'].mean()
+                    vari_corr = para_std/para_aver
+                    station_vari_dict_by_time[stcd] = vari_corr
+                    if vari_corr > 2:
+                        filter_station_list.append(int(stcd))
+                elif 'paravalue' in data_df.columns:
+                    para_std = data_df['paravalue'].std()
+                    para_aver = data_df['paravalue'].mean()
+                    vari_corr = para_std / para_aver
+                    station_vari_dict_by_time[stcd] = vari_corr
+                    if vari_corr > 2:
+                        filter_station_list.append(int(stcd))
     print(filter_station_list)
+    print(station_vari_dict)
+    print(station_vari_dict_by_time)
     return filter_station_list
 
 
