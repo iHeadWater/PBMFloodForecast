@@ -106,50 +106,57 @@ def get_rain_average():
 
 
 def get_infer_inq():
-    biliu_flow_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_rsvr.csv'),
-                                engine='c', parse_dates=['TM'])
-    biliu_area = gdf_biliu_shp.geometry[0].area * 12100
-    biliu_flow_df: DataFrame = biliu_flow_df.fillna(-1)
-    inq_array = biliu_flow_df['INQ'].to_numpy()
-    otq_array = biliu_flow_df['OTQ'].to_numpy()
-    w_array = biliu_flow_df['W'].to_numpy()
-    tm_array = biliu_flow_df['TM'].to_numpy()
-    for i in range(1, len(biliu_flow_df)):
-        if (int(inq_array[i]) == -1) & (int(otq_array[i]) != -1):
-            # TypeError: unsupported operand type(s) for -: 'str' and 'str'
-            time_div = np.timedelta64(tm_array[i] - tm_array[i - 1]) / np.timedelta64(1, 'h')
-            inq_array[i] = otq_array[i] + (w_array[i] - w_array[i - 1]) / time_div
-    # 还要根据时间间隔插值
-    new_df = pd.DataFrame({'TM': tm_array, 'INQ': inq_array, 'OTQ': otq_array})
-    new_df = new_df.set_index('TM').resample('H').interpolate()
-    # 流量单位转换
-    new_df['INQ_mm/h'] = new_df['INQ'].apply(lambda x: x * 3.6 / biliu_area)
-    new_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu_inq_interpolated.csv'))
-    return new_df['INQ'].to_numpy(), new_df['INQ_mm/h'].to_numpy(), new_df.index.to_numpy()
+    inq_csv_path = os.path.join(definitions.ROOT_DIR, 'example/biliu_inq_interpolated.csv')
+    if os.path.exists(inq_csv_path):
+        new_df = pd.read_csv(inq_csv_path, engine='c').set_index('TM')
+    else:
+        biliu_flow_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_rsvr.csv'),
+                                    engine='c', parse_dates=['TM'])
+        biliu_area = gdf_biliu_shp.geometry[0].area * 12100
+        biliu_flow_df: DataFrame = biliu_flow_df.fillna(-1)
+        inq_array = biliu_flow_df['INQ'].to_numpy()
+        otq_array = biliu_flow_df['OTQ'].to_numpy()
+        w_array = biliu_flow_df['W'].to_numpy()
+        tm_array = biliu_flow_df['TM'].to_numpy()
+        for i in range(1, len(biliu_flow_df)):
+            if (int(inq_array[i]) == -1) & (int(otq_array[i]) != -1):
+                # TypeError: unsupported operand type(s) for -: 'str' and 'str'
+                time_div = np.timedelta64(tm_array[i] - tm_array[i - 1]) / np.timedelta64(1, 'h')
+                inq_array[i] = otq_array[i] + (w_array[i] - w_array[i - 1]) / time_div
+        # 还要根据时间间隔插值
+        new_df = pd.DataFrame({'TM': tm_array, 'INQ': inq_array, 'OTQ': otq_array})
+        new_df = new_df.set_index('TM').resample('H').interpolate()
+        # 流量单位转换
+        new_df['INQ_mm/h'] = new_df['INQ'].apply(lambda x: x * 3.6 / biliu_area)
+        new_df.to_csv(inq_csv_path)
+    return new_df['INQ'], new_df['INQ_mm/h']
 
 
 def test_biliu_rain_flow_division():
     # rain和flow之间的索引要尽量“对齐”
-    rain = np.array(get_rain_average())
-    flow_m3_s = (get_infer_inq()[0])[72786:81917]
-    flow_mm_h = (get_infer_inq()[1])[72786:81917]
-    windows = np.arange(0, len(rain), 1)
-    time = (get_infer_inq()[2])[72786:81917]
+    # 2014.1.1 00:00:00-2022.9.1 00:00:00
+    filtered_rain_aver_df = (pd.read_csv(os.path.join(definitions.ROOT_DIR,
+                                                     'example/filtered_rain_average.csv'), engine='c').
+                             set_index('TM').drop(columns=['Unnamed: 0']))
+    filtered_rain_aver_array = filtered_rain_aver_df['rain'].to_numpy()
+    # flow_m3_s = (get_infer_inq()[0])[filtered_rain_aver_df.index]
+    flow_mm_h = (get_infer_inq()[1])[filtered_rain_aver_df.index]
+    time = filtered_rain_aver_df.index
     rain_min = 0.01
     max_window = 100
-    Tr, fluct_rain_Tr, fluct_flow_Tr, fluct_bivariate_Tr = step1_step2_tr_and_fluctuations_timeseries(rain, flow_mm_h,
+    Tr, fluct_rain_Tr, fluct_flow_Tr, fluct_bivariate_Tr = step1_step2_tr_and_fluctuations_timeseries(filtered_rain_aver_array, flow_mm_h,
                                                                                                       rain_min,
                                                                                                       max_window)
     beginning_core, end_core = step3_core_identification(fluct_bivariate_Tr)
-    end_rain = step4_end_rain_events(beginning_core, end_core, rain, fluct_rain_Tr, rain_min)
-    beginning_rain = step5_beginning_rain_events(beginning_core, end_rain, rain, fluct_rain_Tr, rain_min)
+    end_rain = step4_end_rain_events(beginning_core, end_core, filtered_rain_aver_array, fluct_rain_Tr, rain_min)
+    beginning_rain = step5_beginning_rain_events(beginning_core, end_rain, filtered_rain_aver_array, fluct_rain_Tr, rain_min)
     beginning_rain_checked, end_rain_checked, beginning_core, end_core = step6_checks_on_rain_events(beginning_rain,
-                                                                                                     end_rain, rain,
+                                                                                                     end_rain, filtered_rain_aver_array,
                                                                                                      rain_min,
                                                                                                      beginning_core,
                                                                                                      end_core)
-    end_flow = step7_end_flow_events(end_rain_checked, beginning_core, end_core, rain, fluct_rain_Tr, fluct_flow_Tr, Tr)
-    beginning_flow = step8_beginning_flow_events(beginning_rain_checked, end_rain_checked, rain, beginning_core,
+    end_flow = step7_end_flow_events(end_rain_checked, beginning_core, end_core, filtered_rain_aver_array, fluct_rain_Tr, fluct_flow_Tr, Tr)
+    beginning_flow = step8_beginning_flow_events(beginning_rain_checked, end_rain_checked, filtered_rain_aver_array, beginning_core,
                                                  fluct_rain_Tr, fluct_flow_Tr)
     beginning_flow_checked, end_flow_checked = step9_checks_on_flow_events(beginning_rain_checked, end_rain_checked,
                                                                            beginning_flow,
@@ -157,15 +164,21 @@ def test_biliu_rain_flow_division():
     BEGINNING_RAIN, END_RAIN, BEGINNING_FLOW, END_FLOW = step10_checks_on_overlapping_events(beginning_rain_checked,
                                                                                              end_rain_checked,
                                                                                              beginning_flow_checked,
-                                                                                             end_flow_checked, windows)
+                                                                                             end_flow_checked, time)
+    print(len(BEGINNING_RAIN), len(END_RAIN), len(BEGINNING_FLOW), len(END_FLOW))
+    print('_________________________')
+    print(BEGINNING_RAIN, END_RAIN)
+    print('_________________________')
+    print(BEGINNING_FLOW, END_FLOW)
     # XXX_FLOW 和 XXX_RAIN 长度不同，原因暂时未知，可能是数据本身问题（如插值导致）或者单位未修整
     # 单位修整后依旧难以抢救，只能先选靠前的几场
+    '''
     session_amount = 5
     for i in range(0, session_amount):
         # 雨洪长度可能不一致，姑且长度取最大值
         start = BEGINNING_RAIN[i] if BEGINNING_RAIN[i] < BEGINNING_FLOW[i] else BEGINNING_FLOW[i]
         end = END_RAIN[i] if END_RAIN[i] > END_FLOW[i] else END_FLOW[i]
-        rain_session = rain[start:end + 1]
+        rain_session = filtered_rain_aver_array[start:end + 1]
         flow_session_mm_h = flow_mm_h[start:end + 1]
         flow_session_m3_s = flow_m3_s[start:end + 1]
         rain_time = time[start:end + 1]
@@ -177,6 +190,7 @@ def test_biliu_rain_flow_division():
                     np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[1]
         session_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/sessions/' +
                                        date_path + '_session.csv'))
+        '''
 
 
 # need fusion with the last test
@@ -202,7 +216,8 @@ def test_calibrate_flow():
         calibrate_np = np.swapaxes(calibrate_np, 0, 1)
         observed_output = np.expand_dims(calibrate_np[:, :, -1], axis=0)
         observed_output = np.swapaxes(observed_output, 0, 1)
-        pop = calibrate_by_ga(input_data=calibrate_np[:, :, 0:2], observed_output=observed_output, deap_dir=deap_dir, warmup_length=24)
+        pop = calibrate_by_ga(input_data=calibrate_np[:, :, 0:2], observed_output=observed_output, deap_dir=deap_dir,
+                              warmup_length=24)
         print(pop)
         return pop
 
@@ -224,4 +239,3 @@ def test_localize_by_era():
     rain_round_coords = [(round(coord[0], 1), round(coord[1], 1)) for coord in rain_coords]
     times = total_era5_ds.sel(longitude=rain_round_coords[0][0], latitude=rain_round_coords[0][1])
     times_df = times.to_dataframe()
-
