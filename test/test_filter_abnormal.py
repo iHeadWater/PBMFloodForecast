@@ -1,4 +1,3 @@
-import math
 import os
 import shutil
 
@@ -97,16 +96,16 @@ def test_calc_filter_station_list():
 def test_filter_abnormal_sl_and_biliu():
     biliu_his_stas_path = os.path.join(definitions.ROOT_DIR, 'example/biliu_history_data/history_data_splited_hourly')
     sl_biliu_stas_path = os.path.join(definitions.ROOT_DIR, 'example/rain_datas')
-    time_df_dict_biliu_his = test_filter_data_by_time(biliu_his_stas_path, filter_station_list)
-    time_df_dict_sl_biliu = test_filter_data_by_time(sl_biliu_stas_path)
+    time_df_dict_biliu_his = get_filter_data_by_time(biliu_his_stas_path, filter_station_list)
+    time_df_dict_sl_biliu = get_filter_data_by_time(sl_biliu_stas_path)
     time_df_dict_sl_biliu.update(time_df_dict_biliu_his)
-    space_df_dict = test_filter_data_by_space(time_df_dict_sl_biliu, filter_station_list)
+    space_df_dict = get_filter_data_by_space(time_df_dict_sl_biliu, filter_station_list)
     for key in space_df_dict.keys():
         space_df_dict[key].to_csv(
             os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_between_sl_biliu', key + '_filtered.csv'))
 
 
-def test_filter_data_by_time(data_path, filter_list=None):
+def get_filter_data_by_time(data_path, filter_list=None):
     if filter_list is None:
         filter_list = []
     time_df_dict = {}
@@ -163,7 +162,7 @@ def test_filter_data_by_time(data_path, filter_list=None):
     return time_df_dict
 
 
-def test_filter_data_by_space(time_df_dict, filter_list):
+def get_filter_data_by_space(time_df_dict, filter_list):
     neighbor_stas_dict = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_list)[0]
     gdf_stid_total = find_neighbor_dict(sl_stas_table, biliu_stas_table, filter_list)[1]
     space_df_dict = {}
@@ -289,16 +288,16 @@ def test_rain_average_filtered(start_date='2014-01-01 00:00:00', end_date='2022-
         for stcd in table_dict.keys():
             rain_table = table_dict[stcd]
             if 'DRP' in rain_table.columns:
-                if time in rain_table['TM']:
+                if time in rain_table['TM'].to_numpy():
                     drp = rain_table['DRP'][rain_table['TM'] == time]
-                    time_rain_records[stcd] = drp
+                    time_rain_records[stcd] = drp.values[0]
                 else:
                     drp = 0
                     time_rain_records[stcd] = drp
             elif 'paravalue' in rain_table.columns:
-                if time in rain_table['systemtime']:
+                if time in rain_table['systemtime'].to_numpy():
                     drp = rain_table['paravalue'][rain_table['systemtime'] == time]
-                    time_rain_records[stcd] = drp
+                    time_rain_records[stcd] = drp.values[0]
                 else:
                     drp = 0
                     time_rain_records[stcd] = drp
