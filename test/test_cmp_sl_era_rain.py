@@ -4,9 +4,14 @@ import os
 import numpy as np
 import pandas as pd
 import xarray as xr
+from geopandas import GeoDataFrame
+from shapely import Point
+import geopandas as gpd
 
 import definitions
-from test.test_read_rain_stas import intersect_rain_stations
+
+gdf_biliu_shp: GeoDataFrame = gpd.read_file(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp'
+                                                                               '/碧流河流域.shp'), engine='pyogrio')
 
 
 # step1: kgo8gd/tnld77/tdi9atr3mir1e3g6
@@ -29,7 +34,7 @@ def test_compare_era5_biliu_yr():
     era5_df = pd.DataFrame(era5_dict, index=np.arange(2018, 2023, 1)).T
     sl_np = sl_df.to_numpy()
     era5_np = era5_df.to_numpy()
-    diff_np = np.round((era5_np - sl_np)/sl_np, 3)
+    diff_np = np.round((era5_np - sl_np) / sl_np, 3)
     diff_df = pd.DataFrame(data=diff_np, index=sl_df.index, columns=np.arange(2018, 2023, 1))
     sl_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/sl.csv'))
     era5_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_sl.csv'))
@@ -63,7 +68,7 @@ def test_cmp_biliu_era_rain():
     era5_df = pd.DataFrame(era5_dict, index=np.arange(2018, 2023, 1)).T
     biliu_np = biliu_df.to_numpy()
     era5_np = era5_df.to_numpy()
-    diff_np = np.round((era5_np - biliu_np)/biliu_np, 3)
+    diff_np = np.round((era5_np - biliu_np) / biliu_np, 3)
     diff_df = pd.DataFrame(data=diff_np, index=biliu_df.index, columns=np.arange(2018, 2023, 1))
     biliu_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/biliu.csv'))
     era5_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_biliu.csv'))
@@ -96,3 +101,23 @@ def get_era5_history_dict(rain_coords, stcd_array):
             year_sum_list.append(year_sum)
         era5_dict[stcd] = year_sum_list
     return era5_dict
+
+
+def intersect_rain_stations():
+    pp_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/rain_stations.csv'), engine='c').drop(
+        columns=['Unnamed: 0'])
+    geo_list = []
+    stcd_list = []
+    stnm_list = []
+    for i in range(0, len(pp_df)):
+        xc = pp_df['LGTD'][i]
+        yc = pp_df['LTTD'][i]
+        stcd_list.append(pp_df['STCD'][i])
+        stnm_list.append(pp_df['STNM'][i])
+        geo_list.append(Point(xc, yc))
+    gdf_pps: GeoDataFrame = gpd.GeoDataFrame({'STCD': stcd_list, 'STNM': stnm_list}, geometry=geo_list)
+    gdf_rain_stations = gpd.sjoin(gdf_pps, gdf_biliu_shp, 'inner', 'intersects')
+    gdf_rain_stations = gdf_rain_stations[~(gdf_rain_stations['STCD'] == '21422950')]
+    gdf_rain_stations.to_file(
+        os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'))
+    return gdf_rain_stations

@@ -4,12 +4,17 @@ import shutil
 import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame
+from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries, step3_core_identification, step4_end_rain_events, \
+    step5_beginning_rain_events, step6_checks_on_rain_events, step7_end_flow_events, step8_beginning_flow_events, \
+    step9_checks_on_flow_events, step10_checks_on_overlapping_events
+from pandas import DataFrame
 from shapely import distance, Point
+from xaj.calibrate_ga_xaj_bmi import calibrate_by_ga
 
 import definitions
 import geopandas as gpd
+import whitebox
 
-from test.test_read_rain_stas import voronoi_from_shp
 
 sl_stas_table: GeoDataFrame = gpd.read_file(
     os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'), engine='pyogrio')
@@ -21,6 +26,32 @@ gdf_biliu_shp: GeoDataFrame = gpd.read_file(os.path.join(definitions.ROOT_DIR, '
 # 碧流河历史数据中，126、127、129、130、133、141、142、154出现过万极值，需要另行考虑或直接剔除
 # 134、137、143、144出现千级极值，需要再筛选
 filter_station_list = [128, 138, 139, 158]
+
+
+class my:
+    data_dir = '.'
+
+    @classmethod
+    def my_callback(cls, value):
+        if not "*" in value and not "%" in value:
+            print(value)
+        if "Elapsed Time" in value:
+            print('--------------')
+
+    @classmethod
+    def my_callback_home(cls, value):
+        if not "*" in value and not "%" in value:
+            print(value)
+        if "Output file written" in value:
+            os.chdir(cls.data_dir)
+
+
+def voronoi_from_shp(src, des, data_dir='.'):
+    my.data_dir = os.path.abspath(data_dir)
+    src = os.path.abspath(src)
+    des = os.path.abspath(des)
+    wbt = whitebox.WhiteboxTools()
+    wbt.voronoi_diagram(src, des, callback=my.my_callback)
 
 
 def test_calc_filter_station_list():
@@ -49,10 +80,8 @@ def test_calc_filter_station_list():
                 para_aver = biliu_df['paravalue'].mean()
                 vari_corr = para_std/para_aver
                 station_vari_dict[stcd] = vari_corr
-                '''
-                if vari_corr > 2:
+                if vari_corr > 3:
                     filter_station_list.append(int(stcd))
-                '''
     for dir_name, sub_dirs, files in os.walk(sl_hourly_path):
         for file in files:
             stcd = file.split('_')[0]
@@ -63,10 +92,8 @@ def test_calc_filter_station_list():
                 para_aver = sl_df['DRP'].mean()
                 vari_corr = para_std/para_aver
                 station_vari_dict[stcd] = vari_corr
-                '''
-                if vari_corr > 2:
+                if vari_corr > 3:
                     filter_station_list.append(int(stcd))
-                    '''
     for dir_name, sub_dirs, files in os.walk(biliu_hourly_filtered_path):
         for file in files:
             stcd = file.split('.')[0]
@@ -78,14 +105,14 @@ def test_calc_filter_station_list():
                     para_aver = data_df['DRP'].mean()
                     vari_corr = para_std/para_aver
                     station_vari_dict_by_time[stcd] = vari_corr
-                    if vari_corr > 2:
+                    if vari_corr > 3:
                         filter_station_list.append(int(stcd))
                 elif 'paravalue' in data_df.columns:
                     para_std = data_df['paravalue'].std()
                     para_aver = data_df['paravalue'].mean()
                     vari_corr = para_std / para_aver
                     station_vari_dict_by_time[stcd] = vari_corr
-                    if vari_corr > 2:
+                    if vari_corr > 3:
                         filter_station_list.append(int(stcd))
     print(filter_station_list)
     print(station_vari_dict)
@@ -311,3 +338,120 @@ def test_rain_average_filtered(start_date='2014-01-01 00:00:00', end_date='2022-
     rain_aver_df = pd.DataFrame({'TM': rain_aver_dict.keys(), 'rain': rain_aver_dict.values()})
     rain_aver_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_average.csv'))
     return rain_aver_dict
+
+
+def get_infer_inq():
+    inq_csv_path = os.path.join(definitions.ROOT_DIR, 'example/biliu_inq_interpolated.csv')
+    if os.path.exists(inq_csv_path):
+        new_df = pd.read_csv(inq_csv_path, engine='c').set_index('TM')
+    else:
+        biliu_flow_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_rsvr.csv'),
+                                    engine='c', parse_dates=['TM'])
+        biliu_area = gdf_biliu_shp.geometry[0].area * 12100
+        biliu_flow_df: DataFrame = biliu_flow_df.fillna(-1)
+        inq_array = biliu_flow_df['INQ'].to_numpy()
+        otq_array = biliu_flow_df['OTQ'].to_numpy()
+        w_array = biliu_flow_df['W'].to_numpy()
+        tm_array = biliu_flow_df['TM'].to_numpy()
+        for i in range(1, len(biliu_flow_df)):
+            if (int(inq_array[i]) == -1) & (int(otq_array[i]) != -1):
+                # TypeError: unsupported operand type(s) for -: 'str' and 'str'
+                time_div = np.timedelta64(tm_array[i] - tm_array[i - 1]) / np.timedelta64(1, 'h')
+                inq_array[i] = otq_array[i] + (w_array[i] - w_array[i - 1]) / time_div
+        # 还要根据时间间隔插值
+        new_df = pd.DataFrame({'TM': tm_array, 'INQ': inq_array, 'OTQ': otq_array})
+        new_df = new_df.set_index('TM').resample('H').interpolate()
+        # 流量单位转换
+        new_df['INQ_mm/h'] = new_df['INQ'].apply(lambda x: x * 3.6 / biliu_area)
+        new_df.to_csv(inq_csv_path)
+    return new_df['INQ'], new_df['INQ_mm/h']
+
+
+def test_biliu_rain_flow_division():
+    # rain和flow之间的索引要尽量“对齐”
+    # 2014.1.1 00:00:00-2022.9.1 00:00:00
+    filtered_rain_aver_df = (pd.read_csv(os.path.join(definitions.ROOT_DIR,
+                                                      'example/filtered_rain_average.csv'), engine='c').
+                             set_index('TM').drop(columns=['Unnamed: 0']))
+    filtered_rain_aver_array = filtered_rain_aver_df['rain'].to_numpy()
+    # flow_m3_s = (get_infer_inq()[0])[filtered_rain_aver_df.index]
+    flow_mm_h = (get_infer_inq()[1])[filtered_rain_aver_df.index]
+    time = filtered_rain_aver_df.index
+    rain_min = 0.01
+    max_window = 100
+    Tr, fluct_rain_Tr, fluct_flow_Tr, fluct_bivariate_Tr = step1_step2_tr_and_fluctuations_timeseries(filtered_rain_aver_array, flow_mm_h,
+                                                                                                      rain_min,
+                                                                                                      max_window)
+    beginning_core, end_core = step3_core_identification(fluct_bivariate_Tr)
+    end_rain = step4_end_rain_events(beginning_core, end_core, filtered_rain_aver_array, fluct_rain_Tr, rain_min)
+    beginning_rain = step5_beginning_rain_events(beginning_core, end_rain, filtered_rain_aver_array, fluct_rain_Tr, rain_min)
+    beginning_rain_checked, end_rain_checked, beginning_core, end_core = step6_checks_on_rain_events(beginning_rain,
+                                                                                                     end_rain, filtered_rain_aver_array,
+                                                                                                     rain_min,
+                                                                                                     beginning_core,
+                                                                                                     end_core)
+    end_flow = step7_end_flow_events(end_rain_checked, beginning_core, end_core, filtered_rain_aver_array, fluct_rain_Tr, fluct_flow_Tr, Tr)
+    beginning_flow = step8_beginning_flow_events(beginning_rain_checked, end_rain_checked, filtered_rain_aver_array, beginning_core,
+                                                 fluct_rain_Tr, fluct_flow_Tr)
+    beginning_flow_checked, end_flow_checked = step9_checks_on_flow_events(beginning_rain_checked, end_rain_checked,
+                                                                           beginning_flow,
+                                                                           end_flow, fluct_flow_Tr)
+    BEGINNING_RAIN, END_RAIN, BEGINNING_FLOW, END_FLOW = step10_checks_on_overlapping_events(beginning_rain_checked,
+                                                                                             end_rain_checked,
+                                                                                             beginning_flow_checked,
+                                                                                             end_flow_checked, time)
+    print(len(BEGINNING_RAIN), len(END_RAIN), len(BEGINNING_FLOW), len(END_FLOW))
+    print('_________________________')
+    print(BEGINNING_RAIN, END_RAIN)
+    print('_________________________')
+    print(BEGINNING_FLOW, END_FLOW)
+    # XXX_FLOW 和 XXX_RAIN 长度不同，原因暂时未知，可能是数据本身问题（如插值导致）或者单位未修整
+    # 单位修整后依旧难以抢救，只能先选靠前的几场
+    '''
+    session_amount = 5
+    for i in range(0, session_amount):
+        # 雨洪长度可能不一致，姑且长度取最大值
+        start = BEGINNING_RAIN[i] if BEGINNING_RAIN[i] < BEGINNING_FLOW[i] else BEGINNING_FLOW[i]
+        end = END_RAIN[i] if END_RAIN[i] > END_FLOW[i] else END_FLOW[i]
+        rain_session = filtered_rain_aver_array[start:end + 1]
+        flow_session_mm_h = flow_mm_h[start:end + 1]
+        flow_session_m3_s = flow_m3_s[start:end + 1]
+        rain_time = time[start:end + 1]
+        session_df = pd.DataFrame(
+            {'RAIN_TM': rain_time, 'RAIN_SESSION': rain_session, 'FLOW_SESSION_MM_H': flow_session_mm_h,
+             'FLOW_SESSION_M3_S': flow_session_m3_s})
+        date_path = np.datetime_as_string(rain_time[0]).split('T')[0] + \
+                    np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[0] + \
+                    np.datetime_as_string(rain_time[0]).split('T')[1].split(':')[1]
+        session_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/sessions/' +
+                                       date_path + '_session.csv'))
+        '''
+
+
+# need fusion with the last test
+def test_calibrate_flow():
+    # test_biliu_rain_flow_division()
+    deap_dir = os.path.join(definitions.ROOT_DIR, 'example/deap_dir/')
+    # pet_df含有潜在蒸散发
+    pet_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_data/pet_calc/PET_result.CSV'), engine='c',
+                         parse_dates=['time']).set_index('time')
+    session_path = os.path.join(definitions.ROOT_DIR, 'example/sessions/')
+    calibrate_df_total = pd.DataFrame()
+    for dir_name, sub_dir, files in os.walk(session_path):
+        for file in files:
+            # session_df 含有雨和洪
+            session_df = pd.read_csv(os.path.join(session_path, file), engine='c', parse_dates=['RAIN_TM']).set_index(
+                'RAIN_TM').drop(columns=['Unnamed: 0'])
+            session_pet = pet_df.loc[session_df.index].to_numpy().flatten()
+            calibrate_df = pd.DataFrame({'PRCP': session_df['RAIN_SESSION'].to_numpy(), 'PET': session_pet,
+                                         'streamflow': session_df['FLOW_SESSION_M3_S'].to_numpy()})
+            calibrate_df_total = pd.concat([calibrate_df_total, calibrate_df], axis=0)
+        calibrate_np = calibrate_df_total.to_numpy()
+        calibrate_np = np.expand_dims(calibrate_np, axis=0)
+        calibrate_np = np.swapaxes(calibrate_np, 0, 1)
+        observed_output = np.expand_dims(calibrate_np[:, :, -1], axis=0)
+        observed_output = np.swapaxes(observed_output, 0, 1)
+        pop = calibrate_by_ga(input_data=calibrate_np[:, :, 0:2], observed_output=observed_output, deap_dir=deap_dir,
+                              warmup_length=24)
+        print(pop)
+        return pop
