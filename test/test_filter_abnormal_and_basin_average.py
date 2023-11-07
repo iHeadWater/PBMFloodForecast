@@ -14,6 +14,7 @@ from xaj.calibrate_ga_xaj_bmi import calibrate_by_ga
 import definitions
 import geopandas as gpd
 import whitebox
+import matplotlib.pyplot as plt
 
 
 sl_stas_table: GeoDataFrame = gpd.read_file(
@@ -405,8 +406,52 @@ def test_biliu_rain_flow_division():
     print(BEGINNING_RAIN, END_RAIN)
     print('_________________________')
     print(BEGINNING_FLOW, END_FLOW)
+    wjy_calibrate_time = pd.read_excel(os.path.join(definitions.ROOT_DIR, 'example/洪水率定时间.xlsx'))
+    wjy_calibrate_time['starttime'] = pd.to_datetime(wjy_calibrate_time['starttime'], format='%Y/%m/%d %H:%M:%S')
+    wjy_calibrate_time['endtime'] = pd.to_datetime(wjy_calibrate_time['endtime'], format='%Y/%m/%d %H:%M:%S')
+    for i in range(14, 25):
+        start_time = wjy_calibrate_time['starttime'][i]
+        end_time = wjy_calibrate_time['endtime'][i]
+        x = pd.date_range(start_time, end_time, freq='H')
+        fig, ax = plt.subplots(figsize=(9, 6))
+        p = ax.twinx()
+        filtered_rain_aver_df.index = pd.to_datetime(filtered_rain_aver_df.index)
+        flow_mm_h.index = pd.to_datetime(flow_mm_h.index)
+        y_rain = filtered_rain_aver_df[start_time: end_time]
+        y_flow = flow_mm_h[start_time:end_time]
+        ax.bar(x, y_rain.to_numpy().flatten(), color='red', edgecolor='k', alpha=0.6, width=0.04)
+        ax.set_ylabel('rain(mm)')
+        ax.invert_yaxis()
+        p.plot(x, y_flow, color='green', linewidth=2)
+        p.set_ylabel('flow(mm/h)')
+        plt.savefig(os.path.join(definitions.ROOT_DIR, 'example/rain_flow_event_'+str(start_time).split(' ')[0]+'_wy.png'))
+    '''
     # XXX_FLOW 和 XXX_RAIN 长度不同，原因暂时未知，可能是数据本身问题（如插值导致）或者单位未修整
-    # 单位修整后依旧难以抢救，只能先选靠前的几场
+    plt.figure()
+    x = time
+    rain_event_array = np.zeros(shape=len(time))
+    flow_event_array = np.zeros(shape=len(time))
+    for i in range(0, len(BEGINNING_RAIN)):
+        rain_event = filtered_rain_aver_df['rain'][BEGINNING_RAIN[i]: END_RAIN[i]]
+        beginning_index = np.argwhere(time == BEGINNING_RAIN[i])[0][0]
+        end_index = np.argwhere(time == END_RAIN[i])[0][0]
+        rain_event_array[beginning_index: end_index + 1] = rain_event
+    for i in range(0, len(BEGINNING_FLOW)):
+        flow_event = flow_mm_h[BEGINNING_FLOW[i]: END_FLOW[i]]
+        beginning_index = np.argwhere(time == BEGINNING_FLOW[i])[0][0]
+        end_index = np.argwhere(time == END_FLOW[i])[0][0]
+        flow_event_array[beginning_index: end_index + 1] = flow_event
+    y_rain = rain_event_array
+    y_flow = flow_event_array
+    fig, ax = plt.subplots(figsize=(16, 12))
+    p = ax.twinx()  # 包含另一个y轴的坐标轴对象
+    ax.bar(x, y_rain, color='red', alpha=0.6)
+    ax.set_ylabel('rain(mm)')
+    ax.invert_yaxis()
+    p.plot(x, y_flow, color='green', linewidth=2)
+    p.set_ylabel('flow(mm/h)')
+    plt.savefig(os.path.join(definitions.ROOT_DIR, 'example/rain_flow_events.png'))
+    '''
     '''
     session_amount = 5
     for i in range(0, session_amount):
@@ -455,3 +500,59 @@ def test_calibrate_flow():
                               warmup_length=24)
         print(pop)
         return pop
+
+
+def plot_rainfall_runoff(
+    t,
+    p,
+    qs,
+    fig_size=(8, 6),
+    c_lst="rbkgcmy",
+    leg_lst=None,
+    dash_lines=None,
+    title=None,
+    xlabel=None,
+    ylabel=None,
+    linewidth=1,
+):
+    fig, ax = plt.subplots(figsize=fig_size)
+    if dash_lines is not None:
+        assert type(dash_lines) == list
+    else:
+        dash_lines = np.full(len(qs), False).tolist()
+    for k in range(len(qs)):
+        tt = t[k] if type(t) is list else t
+        q = qs[k]
+        leg_str = None
+        if leg_lst is not None:
+            leg_str = leg_lst[k]
+        (line_i,) = ax.plot(tt, q, color=c_lst[k], label=leg_str, linewidth=linewidth)
+        if dash_lines[k]:
+            line_i.set_dashes([2, 2, 10, 2])
+
+    ax.set_ylim(ax.get_ylim()[0], ax.get_ylim()[1] * 1.2)
+    # Create second axes, in order to get the bars from the top you can multiply by -1
+    ax2 = ax.twinx()
+    ax2.bar(tt, -p, color="b")
+
+    # Now need to fix the axis labels
+    max_pre = max(p)
+    ax2.set_ylim(-max_pre * 5, 0)
+    y2_ticks = np.arange(0, max_pre, 20)
+    y2_ticklabels = [str(i) for i in y2_ticks]
+    ax2.set_yticks(-1 * y2_ticks)
+    ax2.set_yticklabels(y2_ticklabels, fontsize=16)
+    # ax2.set_yticklabels([lab.get_text()[1:] for lab in ax2.get_yticklabels()])
+    if title is not None:
+        ax.set_title(title, loc="center", fontdict={"fontsize": 17})
+    if ylabel is not None:
+        ax.set_ylabel(ylabel, fontsize=18)
+    if xlabel is not None:
+        ax.set_xlabel(xlabel, fontsize=18)
+    ax2.set_ylabel("降水（mm/day）", fontsize=8, loc='top')
+    # ax2.set_ylabel("precipitation (mm/day)", fontsize=12, loc='top')
+    # https://github.com/matplotlib/matplotlib/issues/12318
+    ax.tick_params(axis="x", labelsize=16)
+    ax.tick_params(axis="y", labelsize=16)
+    ax.legend(bbox_to_anchor=(0.01, 0.9), loc="upper left", fontsize=16)
+    ax.grid()
