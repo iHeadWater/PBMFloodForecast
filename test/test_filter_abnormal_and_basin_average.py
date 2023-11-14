@@ -1,9 +1,11 @@
 import os
 import shutil
 
+import geopandas as gpd
 import hydromodel.models.xaj
 import numpy as np
 import pandas as pd
+import whitebox
 from geopandas import GeoDataFrame
 from hydromodel.calibrate.calibrate_ga_xaj_bmi import calibrate_by_ga
 from hydromodel.models.xaj_bmi import xajBmi  # noqa:401
@@ -11,13 +13,12 @@ from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries
     step4_end_rain_events, \
     step5_beginning_rain_events, step6_checks_on_rain_events, step7_end_flow_events, step8_beginning_flow_events, \
     step9_checks_on_flow_events, step10_checks_on_overlapping_events
-from hydromodel.utils.stat import statRmse, statError
+from hydromodel.utils.stat import statRmse
+from matplotlib import pyplot as plt
 from pandas import DataFrame
 from shapely import distance, Point
 
 import definitions
-import geopandas as gpd
-import whitebox
 
 sl_stas_table: GeoDataFrame = gpd.read_file(
     os.path.join(definitions.ROOT_DIR, 'example/biliuriver_shp/biliu_basin_rain_stas.shp'), engine='pyogrio')
@@ -489,5 +490,17 @@ def test_compare_paras():
     '''
     warmup_length = 24
     qsim, es = hydromodel.models.xaj.xaj(p_and_e=test_session_np[:, :, 0:2], params=np.array(pkl_xaj['halloffame'][0]).reshape(1, -1), warmup_length=warmup_length)
-    rmse = statRmse(qsim.flatten(), test_session_np[:, :, -1].flatten()[warmup_length:])
+    y_flow_obs = test_session_np[:, :, -1].flatten()[warmup_length:]
+    rmse = statRmse(qsim.flatten(), y_flow_obs)
+    x = pd.date_range(start_time+np.timedelta64(warmup_length, 'h'), end_time, freq='H')
+    y_rain_obs = rain_session.to_numpy().flatten()
+    fig, ax = plt.subplots(figsize=(16, 12))
+    p = ax.twinx()
+    ax.bar(x, y_rain_obs[warmup_length:], color='red', alpha=0.6, width=0.04)
+    ax.set_ylabel('rain(mm)')
+    ax.invert_yaxis()
+    p.plot(x, y_flow_obs, color='green', linewidth=2)
+    p.plot(x, qsim.flatten(), color='yellow', linewidth=2)
+    p.set_ylabel('flow(m3/s)')
+    plt.savefig(os.path.join(definitions.ROOT_DIR, 'example/calibrated_xaj_cmp.png'))
     print(rmse)
