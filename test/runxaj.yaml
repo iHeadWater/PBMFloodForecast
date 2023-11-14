@@ -9,9 +9,9 @@
   # end_time_str: "2021-08-31 23:00:00"
   # time_units: "hours"
 # initial condition
-  forcing_data: "/example/01013500_lump_p_pe_q.txt"
-  json_file: "/example/data_info.json"
-  npy_file: "/example/basins_lump_p_pe_q.npy"
+  # forcing_data: "/example/01013500_lump_p_pe_q.txt"
+  # json_file: "/example/data_info.json"
+  # npy_file: "/example/basins_lump_p_pe_q.npy"
   warmup_length: 24
   basin_area: 2097
   train_period: ["1990-01-01", "2000-12-31"]

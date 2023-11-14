@@ -1,14 +1,17 @@
 import os
 import shutil
 
+import hydromodel.models.xaj
 import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame
 from hydromodel.calibrate.calibrate_ga_xaj_bmi import calibrate_by_ga
+from hydromodel.models.xaj_bmi import xajBmi  # noqa:401
 from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries, step3_core_identification, \
     step4_end_rain_events, \
     step5_beginning_rain_events, step6_checks_on_rain_events, step7_end_flow_events, step8_beginning_flow_events, \
     step9_checks_on_flow_events, step10_checks_on_overlapping_events
+from hydromodel.utils.stat import statRmse, statError
 from pandas import DataFrame
 from shapely import distance, Point
 
@@ -348,7 +351,7 @@ def test_rain_average_filtered(start_date='2014-01-01 00:00:00', end_date='2022-
 def get_infer_inq():
     inq_csv_path = os.path.join(definitions.ROOT_DIR, 'example/biliu_inq_interpolated.csv')
     if os.path.exists(inq_csv_path):
-        new_df = pd.read_csv(inq_csv_path, engine='c').set_index('TM')
+        new_df = pd.read_csv(inq_csv_path, engine='c', parse_dates=['TM']).set_index('TM')
     else:
         biliu_flow_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/biliuriver_rsvr.csv'),
                                     engine='c', parse_dates=['TM'])
@@ -425,8 +428,6 @@ def test_biliu_rain_flow_division():
         start_time = pd.to_datetime(session[0])
         end_time = pd.to_datetime(session[1])
         filtered_rain_aver_df.index = pd.to_datetime(filtered_rain_aver_df.index)
-        flow_mm_h.index = pd.to_datetime(flow_mm_h.index)
-        flow_m3_s.index = pd.to_datetime(flow_m3_s.index)
         rain_session = filtered_rain_aver_df[start_time: end_time]
         flow_session_mm_h = flow_mm_h[start_time: end_time]
         flow_session_m3_s = flow_m3_s[start_time: end_time]
@@ -459,3 +460,34 @@ def test_calibrate_flow():
                           warmup_length=24)
     print(pop)
     return pop
+
+
+def test_compare_paras():
+    test_session_time = ('2018/8/13 08:00:00', '2018/8/17 06:00:00')
+    filtered_rain_aver_df = (pd.read_csv(os.path.join(definitions.ROOT_DIR,
+                                                      'example/filtered_rain_average.csv'), engine='c', parse_dates=['TM']).
+                             set_index('TM').drop(columns=['Unnamed: 0']))
+    flow_m3_s = (get_infer_inq()[0])[filtered_rain_aver_df.index]
+    pet_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_data/pet_calc/PET_result.CSV'), engine='c',
+                         parse_dates=['time']).set_index('time')
+    start_time = pd.to_datetime(test_session_time[0])
+    end_time = pd.to_datetime(test_session_time[1])
+    rain_session = filtered_rain_aver_df[start_time: end_time]
+    session_pet = pet_df.loc[start_time: end_time].to_numpy().flatten()
+    flow_session_m3_s = flow_m3_s[start_time: end_time]
+    test_session_df = pd.DataFrame({'RAIN_SESSION': rain_session.to_numpy().flatten(),
+                                    'PET': session_pet,
+                                    'FLOW_SESSION_M3_S': flow_session_m3_s.to_numpy()})
+    test_session_np = test_session_df.to_numpy()
+    test_session_np = np.expand_dims(test_session_np, axis=0)
+    test_session_np = np.swapaxes(test_session_np, 0, 1)
+    pkl_xaj = np.load(os.path.join(definitions.ROOT_DIR, 'example/deap_dir/epoch5.pkl'), allow_pickle=True)
+    '''
+    xaj = xajBmi()
+    xaj.initialize(config_file='runxaj.yaml', params=np.array(pkl_xaj['halloffame'][0]).reshape(1, -1), p_and_e=test_session_np[:, :, 0:2])
+    best_simulation = xaj.get_value("discharge")
+    '''
+    warmup_length = 24
+    qsim, es = hydromodel.models.xaj.xaj(p_and_e=test_session_np[:, :, 0:2], params=np.array(pkl_xaj['halloffame'][0]).reshape(1, -1), warmup_length=warmup_length)
+    rmse = statRmse(qsim.flatten(), test_session_np[:, :, -1].flatten()[warmup_length:])
+    print(rmse)
