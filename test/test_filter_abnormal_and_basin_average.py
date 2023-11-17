@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import whitebox
 from geopandas import GeoDataFrame
-from hydromodel.calibrate.calibrate_ga_xaj_bmi import calibrate_by_ga
+from hydromodel.calibrate.calibrate_ga import calibrate_by_ga
 from hydromodel.models.xaj_bmi import xajBmi  # noqa:401
 from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries, step3_core_identification, \
     step4_end_rain_events, \
@@ -376,14 +376,14 @@ def get_infer_inq():
     return new_df['INQ'], new_df['INQ_mm/h']
 
 
-def test_biliu_rain_flow_division():
+def biliu_rain_flow_division():
     # rain和flow之间的索引要尽量“对齐”
     # 2014.1.1 00:00:00-2022.9.1 00:00:00
     filtered_rain_aver_df = (pd.read_csv(os.path.join(definitions.ROOT_DIR,
                                                       'example/filtered_rain_average.csv'), engine='c').
                              set_index('TM').drop(columns=['Unnamed: 0']))
     filtered_rain_aver_array = filtered_rain_aver_df['rain'].to_numpy()
-    flow_m3_s = (get_infer_inq()[0])[filtered_rain_aver_df.index]
+    # flow_m3_s = (get_infer_inq()[0])[filtered_rain_aver_df.index]
     flow_mm_h = (get_infer_inq()[1])[filtered_rain_aver_df.index]
     time = filtered_rain_aver_df.index
     rain_min = 0.01
@@ -423,51 +423,57 @@ def test_biliu_rain_flow_division():
     session_times = [('2017/8/1 15:00:00', '2017/8/7 07:00:00'), ('2018/8/19 12:00:00', '2018/8/23 09:00:00'),
                      ('2020/8/31 04:00:00', '2020/9/4 15:00:00'), ('2022/7/6 10:00:00', '2022/7/10 00:00:00'),
                      ('2022/8/6 10:00:00', '2022/8/11 00:00:00')]
-    total_session_df = pd.DataFrame()
+    session_df_list = []
     for session in session_times:
-        # 雨洪长度可能不一致，姑且长度取最大值
         start_time = pd.to_datetime(session[0])
         end_time = pd.to_datetime(session[1])
         filtered_rain_aver_df.index = pd.to_datetime(filtered_rain_aver_df.index)
         rain_session = filtered_rain_aver_df[start_time: end_time]
         flow_session_mm_h = flow_mm_h[start_time: end_time]
-        flow_session_m3_s = flow_m3_s[start_time: end_time]
+        # flow_session_m3_s = flow_m3_s[start_time: end_time]
         session_df = pd.DataFrame(
             {'TM': pd.date_range(start_time, end_time, freq='H'), 'RAIN_SESSION': rain_session.to_numpy().flatten()
-                , 'FLOW_SESSION_MM_H': flow_session_mm_h.to_numpy(), 'FLOW_SESSION_M3_S': flow_session_m3_s.to_numpy()})
-        total_session_df = pd.concat([total_session_df, session_df], axis=0)
-    total_session_df.to_csv(os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_flow_sessions.csv'))
-    return total_session_df
+                , 'FLOW_SESSION_MM_H': flow_session_mm_h.to_numpy()})
+        session_df_list.append(session_df)
+    return session_df_list
+
+
+def get_deap_dir_by_session(df: DataFrame):
+    top_deap_dir = os.path.join(definitions.ROOT_DIR, 'example/deap_dir/')
+    time_index = df.index[0].strftime('%Y-%m-%d-%H-%M-%S')
+    deap_dir = os.path.join(top_deap_dir, time_index)
+    if not os.path.exists(deap_dir):
+        os.makedirs(deap_dir)
+    return deap_dir
 
 
 # need fusion with the last test
 def test_calibrate_flow():
-    deap_dir = os.path.join(definitions.ROOT_DIR, 'example/deap_dir/')
     # pet_df含有潜在蒸散发
     pet_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_data/pet_calc/PET_result.CSV'), engine='c',
                          parse_dates=['time']).set_index('time')
-    session_path = os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_flow_sessions.csv')
-    # session_df 含有雨和洪
-    session_df = pd.read_csv(session_path, engine='c', parse_dates=['TM']).set_index('TM').drop(columns=['Unnamed: 0'])
-    session_pet = pet_df.loc[session_df.index].to_numpy().flatten()
-    calibrate_df = pd.DataFrame({'PRCP': session_df['RAIN_SESSION'].to_numpy(), 'PET': session_pet,
-                                 'streamflow': session_df['FLOW_SESSION_M3_S'].to_numpy()})
-    calibrate_np = calibrate_df.to_numpy()
-    calibrate_np = np.expand_dims(calibrate_np, axis=0)
-    calibrate_np = np.swapaxes(calibrate_np, 0, 1)
-    observed_output = np.expand_dims(calibrate_np[:, :, -1], axis=0)
-    observed_output = np.swapaxes(observed_output, 0, 1)
-    pop = calibrate_by_ga(input_data=calibrate_np[:, :, 0:2], observed_output=observed_output, deap_dir=deap_dir,
-                          warmup_length=24)
-    print(pop)
-    return pop
+    session_df_list = biliu_rain_flow_division()
+    for session_df in session_df_list:
+        # session_df 含有雨和洪
+        session_df = session_df.set_index('TM')
+        deap_dir = get_deap_dir_by_session(session_df)
+        session_pet = pet_df.loc[session_df.index].to_numpy().flatten()
+        calibrate_df = pd.DataFrame({'PRCP': session_df['RAIN_SESSION'].to_numpy(), 'PET': session_pet,
+                                 'streamflow': session_df['FLOW_SESSION_MM_H'].to_numpy()})
+        calibrate_np = calibrate_df.to_numpy()
+        calibrate_np = np.expand_dims(calibrate_np, axis=0)
+        calibrate_np = np.swapaxes(calibrate_np, 0, 1)
+        observed_output = np.expand_dims(calibrate_np[:, :, -1], axis=0)
+        observed_output = np.swapaxes(observed_output, 0, 1)
+        pop = calibrate_by_ga(input_data=calibrate_np[:, :, 0:2], observed_output=observed_output, deap_dir=deap_dir,
+                              warmup_length=24)
+        print(pop)
 
 
 def test_compare_paras():
     test_session_time = ('2018/8/13 08:00:00', '2018/8/17 06:00:00')
-    filtered_rain_aver_df = (pd.read_csv(os.path.join(definitions.ROOT_DIR,
-                                                      'example/filtered_rain_average.csv'), engine='c', parse_dates=['TM']).
-                             set_index('TM').drop(columns=['Unnamed: 0']))
+    filtered_rain_aver_df = (pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/filtered_rain_average.csv'),
+                                         engine='c', parse_dates=['TM']).set_index('TM').drop(columns=['Unnamed: 0']))
     flow_m3_s = (get_infer_inq()[0])[filtered_rain_aver_df.index]
     pet_df = pd.read_csv(os.path.join(definitions.ROOT_DIR, 'example/era5_data/pet_calc/PET_result.CSV'), engine='c',
                          parse_dates=['time']).set_index('time')
@@ -482,25 +488,26 @@ def test_compare_paras():
     test_session_np = test_session_df.to_numpy()
     test_session_np = np.expand_dims(test_session_np, axis=0)
     test_session_np = np.swapaxes(test_session_np, 0, 1)
-    pkl_xaj = np.load(os.path.join(definitions.ROOT_DIR, 'example/deap_dir/epoch5.pkl'), allow_pickle=True)
-    '''
-    xaj = xajBmi()
-    xaj.initialize(config_file='runxaj.yaml', params=np.array(pkl_xaj['halloffame'][0]).reshape(1, -1), p_and_e=test_session_np[:, :, 0:2])
-    best_simulation = xaj.get_value("discharge")
-    '''
-    warmup_length = 24
-    qsim, es = hydromodel.models.xaj.xaj(p_and_e=test_session_np[:, :, 0:2], params=np.array(pkl_xaj['halloffame'][0]).reshape(1, -1), warmup_length=warmup_length)
-    y_flow_obs = test_session_np[:, :, -1].flatten()[warmup_length:]
-    rmse = statRmse(qsim.flatten(), y_flow_obs)
-    x = pd.date_range(start_time+np.timedelta64(warmup_length, 'h'), end_time, freq='H')
-    y_rain_obs = rain_session.to_numpy().flatten()
-    fig, ax = plt.subplots(figsize=(16, 12))
-    p = ax.twinx()
-    ax.bar(x, y_rain_obs[warmup_length:], color='red', alpha=0.6, width=0.04)
-    ax.set_ylabel('rain(mm)')
-    ax.invert_yaxis()
-    p.plot(x, y_flow_obs, color='green', linewidth=2)
-    p.plot(x, qsim.flatten(), color='yellow', linewidth=2)
-    p.set_ylabel('flow(m3/s)')
-    plt.savefig(os.path.join(definitions.ROOT_DIR, 'example/calibrated_xaj_cmp.png'))
-    print(rmse)
+    sessions_list = biliu_rain_flow_division()
+    for sessions_df in sessions_list:
+        sessions_df = sessions_df.set_index('TM')
+        pkl_epoch5_path = os.path.join(get_deap_dir_by_session(sessions_df), 'epoch5.pkl')
+        pkl_xaj = np.load(pkl_epoch5_path, allow_pickle=True)
+        warmup_length = 24
+        qsim, es = hydromodel.models.xaj.xaj(p_and_e=test_session_np[:, :, 0:2],
+                                             params=np.array(pkl_xaj['halloffame'][0]).reshape(1, -1), warmup_length=warmup_length)
+        qsim = qsim * 2097000 / 86400
+        y_flow_obs = test_session_np[:, :, -1].flatten()[warmup_length:]
+        rmse = statRmse(qsim.flatten(), y_flow_obs)
+        x = pd.date_range(start_time + np.timedelta64(warmup_length, 'h'), end_time, freq='H')
+        y_rain_obs = rain_session.to_numpy().flatten()
+        fig, ax = plt.subplots(figsize=(16, 12))
+        p = ax.twinx()
+        ax.bar(x, y_rain_obs[warmup_length:], color='red', alpha=0.6, width=0.04)
+        ax.set_ylabel('rain(mm)')
+        ax.invert_yaxis()
+        p.plot(x, y_flow_obs, color='green', linewidth=2)
+        p.plot(x, qsim.flatten(), color='yellow', linewidth=2)
+        p.set_ylabel('flow(m3/s)')
+        plt.savefig(os.path.join(get_deap_dir_by_session(sessions_df), 'calibrated_xaj_cmp.png'))
+        print(rmse)
