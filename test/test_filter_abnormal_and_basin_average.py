@@ -8,7 +8,6 @@ import pandas as pd
 import whitebox
 from geopandas import GeoDataFrame
 from hydromodel.calibrate.calibrate_ga import calibrate_by_ga
-from hydromodel.models.xaj_bmi import xajBmi  # noqa:401
 from hydromodel.utils.dmca_esr import step1_step2_tr_and_fluctuations_timeseries, step3_core_identification, \
     step4_end_rain_events, \
     step5_beginning_rain_events, step6_checks_on_rain_events, step7_end_flow_events, step8_beginning_flow_events, \
@@ -471,6 +470,7 @@ def test_calibrate_flow():
 
 
 def test_compare_paras():
+    # 遗传算法是按照mm/h率定的
     '''
     test_session_times = [('2017/8/1 15:00:00', '2017/8/7 07:00:00'), ('2018/8/19 12:00:00', '2018/8/23 09:00:00'),
                          ('2020/8/31 04:00:00', '2020/9/4 15:00:00'), ('2022/7/6 10:00:00', '2022/7/10 00:00:00'),
@@ -511,8 +511,8 @@ def test_compare_paras():
         session_np = np.expand_dims(session_np, axis=1)
         qsim, es = hydromodel.models.xaj.xaj(p_and_e=session_np[:, :, 0:2],
                                              params=np.array(pkl_xaj['halloffame'][0]).reshape(1, -1),
-                                             warmup_length=warmup_length)
-        qsim = qsim * 2097000 / 86400
+                                             warmup_length=warmup_length, name='xaj_mz')
+        qsim = qsim * 2097000 / 3600
         y_flow_obs = session_np[:, :, -1].flatten()[warmup_length:]
         rmse = statRmse(qsim.flatten(), y_flow_obs)
         x = session_df.index[warmup_length:]
